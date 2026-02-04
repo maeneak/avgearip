@@ -1,0 +1,58 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to AVGear Matrix",
+        "description": "Enter the IP address and port of your AVGear Matrix Switcher.",
+        "data": {
+          "host": "IP Address",
+          "port": "Port"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure AVGear Matrix",
+        "description": "Update the connection settings for your AVGear Matrix Switcher.",
+        "data": {
+          "host": "IP Address",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the matrix. Please check the IP address and port.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AVGear Matrix Options",
+        "description": "Configure polling interval and custom output names.",
+        "data": {
+          "scan_interval": "Update interval (seconds)",
+          "output_1_name": "Output 1 Name",
+          "output_2_name": "Output 2 Name",
+          "output_3_name": "Output 3 Name",
+          "output_4_name": "Output 4 Name",
+          "output_5_name": "Output 5 Name",
+          "output_6_name": "Output 6 Name",
+          "output_7_name": "Output 7 Name",
+          "output_8_name": "Output 8 Name"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "matrix_output": {
+        "name": "Output"
+      },
+      "route_to_all_outputs": {
+        "name": "Route to All Outputs"
+      }
+    }
+  }
+}
