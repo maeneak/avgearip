@@ -11,7 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_OUTPUT_NAMES, DOMAIN, INPUT_OPTIONS, NUM_INPUTS, NUM_OUTPUTS
+from .const import DOMAIN, NUM_INPUTS, NUM_OUTPUTS
 from .coordinator import AVGearMatrixCoordinator
 
 if TYPE_CHECKING:
@@ -28,11 +28,8 @@ async def async_setup_entry(
     """Set up AVGear Matrix select entities."""
     coordinator = entry.runtime_data
 
-    # Get custom output names from options
-    output_names = entry.options.get(CONF_OUTPUT_NAMES, {})
-
     entities: list[SelectEntity] = [
-        AVGearMatrixOutputSelect(coordinator, entry, output_num, output_names.get(str(output_num)))
+        AVGearMatrixOutputSelect(coordinator, entry, output_num)
         for output_num in range(1, NUM_OUTPUTS + 1)
     ]
 
@@ -52,25 +49,27 @@ class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], Selec
         coordinator: AVGearMatrixCoordinator,
         entry: AVGearMatrixConfigEntry,
         output_num: int,
-        custom_name: str | None = None,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
         self._output_num = output_num
-        self._custom_name = custom_name
         self._entry = entry
 
         # Entity attributes
         self._attr_unique_id = f"{entry.entry_id}_output_{output_num}"
-        self._attr_options = INPUT_OPTIONS
         self._attr_translation_key = "matrix_output"
+
+    @property
+    def options(self) -> list[str]:
+        """Return available input options dynamically."""
+        options = [self.coordinator.get_input_name(i) for i in range(1, NUM_INPUTS + 1)]
+        options.append("Off")
+        return options
 
     @property
     def name(self) -> str:
         """Return the name of the entity."""
-        if self._custom_name:
-            return self._custom_name
-        return f"Output {self._output_num}"
+        return self.coordinator.get_output_name(self._output_num)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -89,7 +88,7 @@ class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], Selec
         if input_num is None or input_num == 0:
             return "Off"
         if 1 <= input_num <= NUM_INPUTS:
-            return f"Input {input_num}"
+            return self.coordinator.get_input_name(input_num)
         return None
 
     async def async_select_option(self, option: str) -> None:
@@ -97,11 +96,16 @@ class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], Selec
         if option == "Off":
             await self.coordinator.async_switch_off_output(self._output_num)
         else:
-            # Extract input number from "Input X"
-            try:
-                input_num = int(option.replace("Input ", ""))
+            # Find input number by matching name
+            input_num = None
+            for i in range(1, NUM_INPUTS + 1):
+                if self.coordinator.get_input_name(i) == option:
+                    input_num = i
+                    break
+            
+            if input_num:
                 await self.coordinator.async_route_input(input_num, self._output_num)
-            except ValueError:
+            else:
                 _LOGGER.error("Invalid input option: %s", option)
 
     @callback
@@ -126,9 +130,13 @@ class AVGearRouteToAllSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectE
 
         # Entity attributes
         self._attr_unique_id = f"{entry.entry_id}_route_to_all"
-        self._attr_options = [f"Input {i}" for i in range(1, NUM_INPUTS + 1)]
         self._attr_translation_key = "route_to_all_outputs"
         self._attr_icon = "mdi:video-input-hdmi"
+
+    @property
+    def options(self) -> list[str]:
+        """Return available input options dynamically."""
+        return [self.coordinator.get_input_name(i) for i in range(1, NUM_INPUTS + 1)]
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -158,16 +166,22 @@ class AVGearRouteToAllSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectE
                 return None  # Not all same, no selection shown
 
         if 1 <= first_input <= NUM_INPUTS:
-            return f"Input {first_input}"
+            return self.coordinator.get_input_name(first_input)
         return None
 
     async def async_select_option(self, option: str) -> None:
         """Route selected input to all outputs."""
-        try:
-            input_num = int(option.replace("Input ", ""))
+        # Find input number by matching name
+        input_num = None
+        for i in range(1, NUM_INPUTS + 1):
+            if self.coordinator.get_input_name(i) == option:
+                input_num = i
+                break
+        
+        if input_num:
             await self.coordinator.client.route_input_to_all(input_num)
             await self.coordinator.async_request_refresh()
-        except ValueError:
+        else:
             _LOGGER.error("Invalid input option: %s", option)
 
     @callback

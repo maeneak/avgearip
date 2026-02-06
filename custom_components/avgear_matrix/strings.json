@@ -20,7 +20,8 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to the matrix. Please check the IP address and port.",
-      "unknown": "An unexpected error occurred."
+      "unknown": "An unexpected error occurred.",
+      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors."
     },
     "abort": {
       "already_configured": "This device is already configured."
@@ -30,9 +31,17 @@
     "step": {
       "init": {
         "title": "AVGear Matrix Options",
-        "description": "Configure polling interval and custom output names.",
+        "description": "Configure polling interval and custom names for inputs, outputs, and presets.",
         "data": {
           "scan_interval": "Update interval (seconds)",
+          "input_1_name": "Input 1 Name",
+          "input_2_name": "Input 2 Name",
+          "input_3_name": "Input 3 Name",
+          "input_4_name": "Input 4 Name",
+          "input_5_name": "Input 5 Name",
+          "input_6_name": "Input 6 Name",
+          "input_7_name": "Input 7 Name",
+          "input_8_name": "Input 8 Name",
           "output_1_name": "Output 1 Name",
           "output_2_name": "Output 2 Name",
           "output_3_name": "Output 3 Name",
@@ -40,7 +49,46 @@
           "output_5_name": "Output 5 Name",
           "output_6_name": "Output 6 Name",
           "output_7_name": "Output 7 Name",
-          "output_8_name": "Output 8 Name"
+          "output_8_name": "Output 8 Name",
+          "preset_0_name": "Preset 0 Name",
+          "preset_1_name": "Preset 1 Name",
+          "preset_2_name": "Preset 2 Name",
+          "preset_3_name": "Preset 3 Name",
+          "preset_4_name": "Preset 4 Name",
+          "preset_5_name": "Preset 5 Name",
+          "preset_6_name": "Preset 6 Name",
+          "preset_7_name": "Preset 7 Name",
+          "preset_8_name": "Preset 8 Name",
+          "preset_9_name": "Preset 9 Name"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll the matrix for status updates (5-300 seconds)",
+          "input_1_name": "Custom name for Input 1 (e.g., 'Blu-ray Player')",
+          "input_2_name": "Custom name for Input 2 (e.g., 'Cable Box')",
+          "input_3_name": "Custom name for Input 3 (e.g., 'Gaming Console')",
+          "input_4_name": "Custom name for Input 4",
+          "input_5_name": "Custom name for Input 5",
+          "input_6_name": "Custom name for Input 6",
+          "input_7_name": "Custom name for Input 7",
+          "input_8_name": "Custom name for Input 8",
+          "output_1_name": "Custom name for Output 1 (e.g., 'Living Room TV')",
+          "output_2_name": "Custom name for Output 2 (e.g., 'Bedroom TV')",
+          "output_3_name": "Custom name for Output 3",
+          "output_4_name": "Custom name for Output 4",
+          "output_5_name": "Custom name for Output 5",
+          "output_6_name": "Custom name for Output 6",
+          "output_7_name": "Custom name for Output 7",
+          "output_8_name": "Custom name for Output 8",
+          "preset_0_name": "Custom name for Preset 0 (e.g., 'Movie Night')",
+          "preset_1_name": "Custom name for Preset 1 (e.g., 'Gaming Setup')",
+          "preset_2_name": "Custom name for Preset 2",
+          "preset_3_name": "Custom name for Preset 3",
+          "preset_4_name": "Custom name for Preset 4",
+          "preset_5_name": "Custom name for Preset 5",
+          "preset_6_name": "Custom name for Preset 6",
+          "preset_7_name": "Custom name for Preset 7",
+          "preset_8_name": "Custom name for Preset 8",
+          "preset_9_name": "Custom name for Preset 9"
         }
       }
     }
@@ -52,6 +100,14 @@
       },
       "route_to_all_outputs": {
         "name": "Route to All Outputs"
+      }
+    },
+    "button": {
+      "preset_recall": {
+        "name": "Recall Preset"
+      },
+      "preset_save": {
+        "name": "Save Preset"
       }
     }
   }

@@ -13,6 +13,9 @@ DEFAULT_SCAN_INTERVAL = 30
 # Options
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_OUTPUT_NAMES = "output_names"
+CONF_INPUT_NAMES = "input_names"
+CONF_PRESET_NAMES = "preset_names"
+MAX_NAME_LENGTH = 50
 
 # Device info
 ATTR_MODEL = "model"
@@ -22,6 +25,3 @@ ATTR_FIRMWARE = "firmware"
 NUM_INPUTS = 8
 NUM_OUTPUTS = 8
 NUM_PRESETS = 10  # 0-9
-
-# Input options for select entities
-INPUT_OPTIONS = [f"Input {i}" for i in range(1, NUM_INPUTS + 1)] + ["Off"]

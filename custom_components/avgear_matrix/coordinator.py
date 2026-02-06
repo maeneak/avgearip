@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import AVGearConnectionError, AVGearMatrixClient, MatrixStatus
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import CONF_INPUT_NAMES, CONF_OUTPUT_NAMES, CONF_PRESET_NAMES, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -101,3 +101,18 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         else:
             await self.client.power_on()
         await self.async_request_refresh()
+
+    def get_input_name(self, input_num: int) -> str:
+        """Get custom name for an input or return default."""
+        input_names = self.config_entry.options.get(CONF_INPUT_NAMES, {})
+        return input_names.get(str(input_num), f"Input {input_num}")
+
+    def get_output_name(self, output_num: int) -> str:
+        """Get custom name for an output or return default."""
+        output_names = self.config_entry.options.get(CONF_OUTPUT_NAMES, {})
+        return output_names.get(str(output_num), f"Output {output_num}")
+
+    def get_preset_name(self, preset_num: int) -> str:
+        """Get custom name for a preset or return default."""
+        preset_names = self.config_entry.options.get(CONF_PRESET_NAMES, {})
+        return preset_names.get(str(preset_num), f"Preset {preset_num}")

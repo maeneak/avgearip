@@ -13,13 +13,18 @@ from homeassistant.core import callback
 from .api import AVGearConnectionError, AVGearMatrixClient
 from .const import (
     CONF_HOST,
+    CONF_INPUT_NAMES,
     CONF_OUTPUT_NAMES,
     CONF_PORT,
+    CONF_PRESET_NAMES,
     CONF_SCAN_INTERVAL,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_NAME_LENGTH,
+    NUM_INPUTS,
     NUM_OUTPUTS,
+    NUM_PRESETS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,7 +40,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for AVGear Matrix Switcher."""
 
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -138,40 +143,115 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            # Parse output names from individual fields
+            # Parse and strip all name fields
+            input_names = {}
+            for i in range(1, NUM_INPUTS + 1):
+                name = user_input.get(f"input_{i}_name", "").strip()
+                if name:
+                    input_names[str(i)] = name
+
             output_names = {}
             for i in range(1, NUM_OUTPUTS + 1):
-                name = user_input.get(f"output_{i}_name", f"Output {i}")
-                if name and name != f"Output {i}":
+                name = user_input.get(f"output_{i}_name", "").strip()
+                if name:
                     output_names[str(i)] = name
 
-            return self.async_create_entry(
-                title="",
-                data={
-                    CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                    CONF_OUTPUT_NAMES: output_names,
-                },
-            )
+            preset_names = {}
+            for i in range(NUM_PRESETS):
+                name = user_input.get(f"preset_{i}_name", "").strip()
+                if name:
+                    preset_names[str(i)] = name
+
+            # Check for duplicate input names (would cause routing ambiguity)
+            input_name_values = list(input_names.values())
+            if len(input_name_values) != len(set(input_name_values)):
+                errors["base"] = "duplicate_input_names"
+
+            if not errors:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                        CONF_INPUT_NAMES: input_names,
+                        CONF_OUTPUT_NAMES: output_names,
+                        CONF_PRESET_NAMES: preset_names,
+                    },
+                )
 
         # Get current options
         current_options = self.config_entry.options
-        current_names = current_options.get(CONF_OUTPUT_NAMES, {})
+
+        # Migrate old output_X_name format to new dictionary format
+        current_output_names = current_options.get(CONF_OUTPUT_NAMES, {})
+        if not current_output_names:
+            # Check for old format and migrate
+            for i in range(1, NUM_OUTPUTS + 1):
+                old_key = f"output_{i}_name"
+                if old_key in current_options:
+                    current_output_names[str(i)] = current_options[old_key]
+
+        current_input_names = current_options.get(CONF_INPUT_NAMES, {})
+        current_preset_names = current_options.get(CONF_PRESET_NAMES, {})
         current_interval = current_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
-        # Build schema with output name fields
+        # Populate defaults from user_input if re-showing form after error
+        if user_input is not None:
+            current_interval = user_input.get(CONF_SCAN_INTERVAL, current_interval)
+            for i in range(1, NUM_INPUTS + 1):
+                val = user_input.get(f"input_{i}_name", "").strip()
+                if val:
+                    current_input_names[str(i)] = val
+            for i in range(1, NUM_OUTPUTS + 1):
+                val = user_input.get(f"output_{i}_name", "").strip()
+                if val:
+                    current_output_names[str(i)] = val
+            for i in range(NUM_PRESETS):
+                val = user_input.get(f"preset_{i}_name", "").strip()
+                if val:
+                    current_preset_names[str(i)] = val
+
+        # Name validator: strip whitespace, enforce max length
+        name_validator = vol.All(str, vol.Strip, vol.Length(max=MAX_NAME_LENGTH))
+
+        # Build schema with all name fields
         schema_dict: dict[Any, Any] = {
             vol.Required(CONF_SCAN_INTERVAL, default=current_interval): vol.All(
                 int, vol.Range(min=5, max=300)
             ),
         }
 
-        # Add output name fields
+        # Add input name fields with placeholders
+        for i in range(1, NUM_INPUTS + 1):
+            default_name = current_input_names.get(str(i), "")
+            schema_dict[vol.Optional(
+                f"input_{i}_name",
+                default=default_name,
+                description={"suggested_value": default_name or f"Input {i}"},
+            )] = name_validator
+
+        # Add output name fields with placeholders
         for i in range(1, NUM_OUTPUTS + 1):
-            default_name = current_names.get(str(i), f"Output {i}")
-            schema_dict[vol.Optional(f"output_{i}_name", default=default_name)] = str
+            default_name = current_output_names.get(str(i), "")
+            schema_dict[vol.Optional(
+                f"output_{i}_name",
+                default=default_name,
+                description={"suggested_value": default_name or f"Output {i}"},
+            )] = name_validator
+
+        # Add preset name fields with placeholders
+        for i in range(NUM_PRESETS):
+            default_name = current_preset_names.get(str(i), "")
+            schema_dict[vol.Optional(
+                f"preset_{i}_name",
+                default=default_name,
+                description={"suggested_value": default_name or f"Preset {i}"},
+            )] = name_validator
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema_dict),
+            errors=errors,
         )

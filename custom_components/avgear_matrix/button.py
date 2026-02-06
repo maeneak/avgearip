@@ -11,6 +11,7 @@ from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api import AVGearConnectionError
 from .const import DOMAIN, NUM_PRESETS
 from .coordinator import AVGearMatrixCoordinator
 
@@ -63,8 +64,13 @@ class AVGearRecallPresetButton(CoordinatorEntity[AVGearMatrixCoordinator], Butto
         self._entry = entry
 
         self._attr_unique_id = f"{entry.entry_id}_recall_preset_{preset}"
-        self._attr_name = f"Recall Preset {preset}"
         self._attr_icon = "mdi:bookmark-outline"
+
+    @property
+    def name(self) -> str:
+        """Return the name of the entity."""
+        preset_name = self.coordinator.get_preset_name(self._preset)
+        return f"{preset_name} Recall"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -75,7 +81,16 @@ class AVGearRecallPresetButton(CoordinatorEntity[AVGearMatrixCoordinator], Butto
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        await self.coordinator.async_recall_preset(self._preset)
+        try:
+            await self.coordinator.async_recall_preset(self._preset)
+        except AVGearConnectionError as err:
+            _LOGGER.error("Failed to recall preset %d: %s", self._preset, err)
+            # Create persistent notification for user
+            self.hass.components.persistent_notification.async_create(
+                f"Failed to recall preset {self.coordinator.get_preset_name(self._preset)}: {err}",
+                title="AVGear Matrix Error",
+                notification_id=f"avgear_preset_recall_{self._preset}_error",
+            )
 
 
 class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
@@ -96,8 +111,13 @@ class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonE
         self._entry = entry
 
         self._attr_unique_id = f"{entry.entry_id}_save_preset_{preset}"
-        self._attr_name = f"Save Preset {preset}"
         self._attr_icon = "mdi:bookmark-plus"
+
+    @property
+    def name(self) -> str:
+        """Return the name of the entity."""
+        preset_name = self.coordinator.get_preset_name(self._preset)
+        return f"{preset_name} Save"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -108,7 +128,22 @@ class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonE
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        await self.coordinator.async_save_preset(self._preset)
+        try:
+            await self.coordinator.async_save_preset(self._preset)
+            # Create success notification
+            self.hass.components.persistent_notification.async_create(
+                f"Current configuration saved to preset {self.coordinator.get_preset_name(self._preset)}",
+                title="AVGear Matrix",
+                notification_id=f"avgear_preset_save_{self._preset}_success",
+            )
+        except AVGearConnectionError as err:
+            _LOGGER.error("Failed to save preset %d: %s", self._preset, err)
+            # Create error notification for user
+            self.hass.components.persistent_notification.async_create(
+                f"Failed to save preset {self.coordinator.get_preset_name(self._preset)}: {err}",
+                title="AVGear Matrix Error",
+                notification_id=f"avgear_preset_save_{self._preset}_error",
+            )
 
 
 class AVGearAllThroughButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
