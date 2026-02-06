@@ -1,7 +1,7 @@
 {
   "domain": "avgear_matrix",
   "name": "AVGear Matrix Switcher",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "documentation": "https://github.com/maeneak/avgearip",
   "issue_tracker": "https://github.com/maeneak/avgearip/issues",
   "codeowners": ["@maeneak"],

@@ -129,7 +129,7 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Get the options flow for this handler."""
-        return AVGearMatrixOptionsFlow(config_entry)
+        return AVGearMatrixOptionsFlow()
 
 
 class AVGearMatrixOptionsFlow(OptionsFlow):
@@ -209,8 +209,8 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
                 if val:
                     current_preset_names[str(i)] = val
 
-        # Name validator: strip whitespace, enforce max length
-        name_validator = vol.All(str, vol.Strip, vol.Length(max=MAX_NAME_LENGTH))
+        # Name validator: enforce max length
+        name_validator = vol.All(str, vol.Length(max=MAX_NAME_LENGTH))
 
         # Build schema with all name fields
         schema_dict: dict[Any, Any] = {

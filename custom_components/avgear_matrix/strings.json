@@ -20,14 +20,16 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to the matrix. Please check the IP address and port.",
-      "unknown": "An unexpected error occurred.",
-      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors."
+      "unknown": "An unexpected error occurred."
     },
     "abort": {
       "already_configured": "This device is already configured."
     }
   },
   "options": {
+    "error": {
+      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors."
+    },
     "step": {
       "init": {
         "title": "AVGear Matrix Options",
