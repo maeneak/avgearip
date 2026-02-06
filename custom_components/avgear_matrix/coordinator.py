@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import AVGearConnectionError, AVGearMatrixClient, MatrixStatus
-from .const import CONF_INPUT_NAMES, CONF_OUTPUT_NAMES, CONF_PRESET_NAMES, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import CONF_INPUT_NAMES, CONF_PRESET_NAMES, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -38,11 +38,17 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         )
         self.client = client
         self._device_info: dict[str, str] = {}
+        self._current_preset: int | None = None
 
     @property
     def device_info(self) -> dict[str, str]:
         """Return device info."""
         return self._device_info
+
+    @property
+    def current_preset(self) -> int | None:
+        """Return the currently selected preset."""
+        return self._current_preset
 
     async def async_setup(self) -> None:
         """Set up the coordinator and fetch initial device info."""
@@ -80,6 +86,7 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
     async def async_recall_preset(self, preset: int) -> None:
         """Recall a preset and refresh."""
         await self.client.recall_preset(preset)
+        self._current_preset = preset
         await self.async_request_refresh()
 
     async def async_save_preset(self, preset: int) -> None:
@@ -94,6 +101,16 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
             await self.client.unlock_panel()
         await self.async_request_refresh()
 
+    async def async_all_through(self) -> None:
+        """Route all inputs to corresponding outputs and refresh."""
+        await self.client.all_through()
+        await self.async_request_refresh()
+
+    async def async_all_off(self) -> None:
+        """Switch off all outputs and refresh."""
+        await self.client.switch_off_all()
+        await self.async_request_refresh()
+
     async def async_set_standby(self, standby: bool) -> None:
         """Set standby state."""
         if standby:
@@ -106,11 +123,6 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         """Get custom name for an input or return default."""
         input_names = self.config_entry.options.get(CONF_INPUT_NAMES, {})
         return input_names.get(str(input_num), f"Input {input_num}")
-
-    def get_output_name(self, output_num: int) -> str:
-        """Get custom name for an output or return default."""
-        output_names = self.config_entry.options.get(CONF_OUTPUT_NAMES, {})
-        return output_names.get(str(output_num), f"Output {output_num}")
 
     def get_preset_name(self, preset_num: int) -> str:
         """Get custom name for a preset or return default."""

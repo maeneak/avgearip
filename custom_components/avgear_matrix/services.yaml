@@ -1,0 +1,20 @@
+save_preset:
+  name: Save Preset
+  description: Save the current matrix routing configuration to a preset slot.
+  fields:
+    preset:
+      name: Preset
+      description: The preset number to save to (0-9).
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 9
+          mode: box
+    device_id:
+      name: Device
+      description: Target AVGear Matrix device. Required if multiple devices are loaded.
+      required: false
+      selector:
+        device:
+          integration: avgear_matrix

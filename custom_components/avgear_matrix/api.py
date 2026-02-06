@@ -41,10 +41,18 @@ class MatrixStatus:
 class AVGearMatrixClient:
     """Async TCP client for AVGear Matrix Switcher."""
 
-    def __init__(self, host: str, port: int = 4001) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int = 4001,
+        num_inputs: int = 8,
+        num_outputs: int = 8,
+    ) -> None:
         """Initialize the client."""
         self._host = host
         self._port = port
+        self._num_inputs = num_inputs
+        self._num_outputs = num_outputs
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
@@ -189,8 +197,8 @@ class AVGearMatrixClient:
 
     async def route_input_to_output(self, input_num: int, output_num: int) -> bool:
         """Route an input to an output."""
-        if not (1 <= input_num <= 8) or not (1 <= output_num <= 8):
-            raise AVGearCommandError("Input and output must be 1-8")
+        if not (1 <= input_num <= self._num_inputs) or not (1 <= output_num <= self._num_outputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs} and output 1-{self._num_outputs}")
         command = f"{input_num:02d}V{output_num:02d}."
         await self._send_command(command)
         self._status.outputs[output_num] = input_num
@@ -198,18 +206,18 @@ class AVGearMatrixClient:
 
     async def route_input_to_all(self, input_num: int) -> bool:
         """Route an input to all outputs."""
-        if not (1 <= input_num <= 8):
-            raise AVGearCommandError("Input must be 1-8")
+        if not (1 <= input_num <= self._num_inputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
         command = f"{input_num:02d}All."
         await self._send_command(command)
-        for out in range(1, 9):
+        for out in range(1, self._num_outputs + 1):
             self._status.outputs[out] = input_num
         return True
 
     async def switch_off_output(self, output_num: int) -> bool:
         """Switch off (close) an output."""
-        if not (1 <= output_num <= 8):
-            raise AVGearCommandError("Output must be 1-8")
+        if not (1 <= output_num <= self._num_outputs):
+            raise AVGearCommandError(f"Output must be 1-{self._num_outputs}")
         command = f"{output_num:02d}$."
         await self._send_command(command)
         self._status.outputs[output_num] = None
@@ -217,8 +225,8 @@ class AVGearMatrixClient:
 
     async def switch_on_output(self, output_num: int) -> bool:
         """Switch on (open) an output."""
-        if not (1 <= output_num <= 8):
-            raise AVGearCommandError("Output must be 1-8")
+        if not (1 <= output_num <= self._num_outputs):
+            raise AVGearCommandError(f"Output must be 1-{self._num_outputs}")
         command = f"{output_num:02d}@."
         await self._send_command(command)
         return True
@@ -226,14 +234,14 @@ class AVGearMatrixClient:
     async def switch_off_all(self) -> bool:
         """Switch off all outputs."""
         await self._send_command("All$.")
-        for out in range(1, 9):
+        for out in range(1, self._num_outputs + 1):
             self._status.outputs[out] = None
         return True
 
     async def all_through(self) -> bool:
         """Route input 1->out1, 2->out2, etc."""
         await self._send_command("All#.")
-        for i in range(1, 9):
+        for i in range(1, self._num_outputs + 1):
             self._status.outputs[i] = i
         return True
 
@@ -305,7 +313,7 @@ class AVGearMatrixClient:
         # We'll try to parse various formats
 
         # Initialize all outputs as None (unknown)
-        for out in range(1, 9):
+        for out in range(1, self._num_outputs + 1):
             if out not in self._status.outputs:
                 self._status.outputs[out] = None
 
@@ -323,7 +331,7 @@ class AVGearMatrixClient:
                     try:
                         out_num = int(out_str)
                         in_num = int(in_str)
-                        if 1 <= out_num <= 8 and 0 <= in_num <= 8:
+                        if 1 <= out_num <= self._num_outputs and 0 <= in_num <= self._num_inputs:
                             self._status.outputs[out_num] = in_num if in_num > 0 else None
                     except ValueError:
                         continue
@@ -337,7 +345,7 @@ class AVGearMatrixClient:
         match = re.search(r"[Ii]n(?:put)?[:\s]*(\d+)", response)
         if match:
             input_num = int(match.group(1))
-            if 1 <= input_num <= 8:
+            if 1 <= input_num <= self._num_inputs:
                 self._status.outputs[output] = input_num
                 return input_num
 

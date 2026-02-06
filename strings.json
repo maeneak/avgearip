@@ -32,9 +32,7 @@
   },
   "options": {
     "error": {
-      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors.",
-      "duplicate_preset_names": "Each preset must have a unique name. Duplicate preset names would cause selection ambiguity.",
-      "reserved_input_name": "The input name \"Off\" is reserved. Please choose a different name."
+      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors."
     },
     "step": {
       "init": {
@@ -159,10 +157,6 @@
         "preset": {
           "name": "Preset",
           "description": "The preset number to save to (0-9)."
-        },
-        "device_id": {
-          "name": "Device",
-          "description": "Target AVGear Matrix device. Required if multiple devices are loaded."
         }
       }
     }

@@ -1,4 +1,4 @@
-"""Button entities for AVGear Matrix Switcher presets."""
+"""Button entities for AVGear Matrix Switcher."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import AVGearConnectionError
-from .const import DOMAIN, NUM_PRESETS
+from .const import DOMAIN
 from .coordinator import AVGearMatrixCoordinator
 
 if TYPE_CHECKING:
@@ -29,95 +29,32 @@ async def async_setup_entry(
     """Set up AVGear Matrix button entities."""
     coordinator = entry.runtime_data
 
-    entities: list[ButtonEntity] = []
-
-    # Recall preset buttons (0-9)
-    for preset in range(NUM_PRESETS):
-        entities.append(AVGearRecallPresetButton(coordinator, entry, preset))
-
-    # Save preset buttons (0-9)
-    for preset in range(NUM_PRESETS):
-        entities.append(AVGearSavePresetButton(coordinator, entry, preset))
-
-    # Utility buttons
-    entities.append(AVGearAllThroughButton(coordinator, entry))
-    entities.append(AVGearAllOffButton(coordinator, entry))
+    entities: list[ButtonEntity] = [
+        AVGearSavePresetButton(coordinator, entry),
+        AVGearAllThroughButton(coordinator, entry),
+        AVGearAllOffButton(coordinator, entry),
+    ]
 
     async_add_entities(entities)
 
 
-class AVGearRecallPresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
-    """Button to recall a preset."""
-
-    _attr_has_entity_name = True
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(
-        self,
-        coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
-        preset: int,
-    ) -> None:
-        """Initialize the button."""
-        super().__init__(coordinator)
-        self._preset = preset
-        self._entry = entry
-
-        self._attr_unique_id = f"{entry.entry_id}_recall_preset_{preset}"
-        self._attr_icon = "mdi:bookmark-outline"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the entity."""
-        preset_name = self.coordinator.get_preset_name(self._preset)
-        return f"{preset_name} Recall"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
-
-    async def async_press(self) -> None:
-        """Handle the button press."""
-        try:
-            await self.coordinator.async_recall_preset(self._preset)
-        except AVGearConnectionError as err:
-            _LOGGER.error("Failed to recall preset %d: %s", self._preset, err)
-            # Create persistent notification for user
-            self.hass.components.persistent_notification.async_create(
-                f"Failed to recall preset {self.coordinator.get_preset_name(self._preset)}: {err}",
-                title="AVGear Matrix Error",
-                notification_id=f"avgear_preset_recall_{self._preset}_error",
-            )
-
-
 class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
-    """Button to save current state to a preset."""
+    """Button to save current state to the selected preset."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
+    _attr_translation_key = "save_preset"
+    _attr_icon = "mdi:bookmark-plus"
 
     def __init__(
         self,
         coordinator: AVGearMatrixCoordinator,
         entry: AVGearMatrixConfigEntry,
-        preset: int,
     ) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
-        self._preset = preset
         self._entry = entry
-
-        self._attr_unique_id = f"{entry.entry_id}_save_preset_{preset}"
-        self._attr_icon = "mdi:bookmark-plus"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the entity."""
-        preset_name = self.coordinator.get_preset_name(self._preset)
-        return f"{preset_name} Save"
+        self._attr_unique_id = f"{entry.entry_id}_save_preset"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -127,23 +64,16 @@ class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonE
         )
 
     async def async_press(self) -> None:
-        """Handle the button press."""
+        """Save current routing to the selected preset."""
+        preset = self.coordinator.current_preset
+        if preset is None:
+            _LOGGER.warning("No preset selected, cannot save")
+            return
+
         try:
-            await self.coordinator.async_save_preset(self._preset)
-            # Create success notification
-            self.hass.components.persistent_notification.async_create(
-                f"Current configuration saved to preset {self.coordinator.get_preset_name(self._preset)}",
-                title="AVGear Matrix",
-                notification_id=f"avgear_preset_save_{self._preset}_success",
-            )
+            await self.coordinator.async_save_preset(preset)
         except AVGearConnectionError as err:
-            _LOGGER.error("Failed to save preset %d: %s", self._preset, err)
-            # Create error notification for user
-            self.hass.components.persistent_notification.async_create(
-                f"Failed to save preset {self.coordinator.get_preset_name(self._preset)}: {err}",
-                title="AVGear Matrix Error",
-                notification_id=f"avgear_preset_save_{self._preset}_error",
-            )
+            _LOGGER.error("Failed to save preset %d: %s", preset, err)
 
 
 class AVGearAllThroughButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
@@ -173,8 +103,7 @@ class AVGearAllThroughButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonE
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        await self.coordinator.client.all_through()
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_all_through()
 
 
 class AVGearAllOffButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
@@ -204,5 +133,4 @@ class AVGearAllOffButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntit
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        await self.coordinator.client.switch_off_all()
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_all_off()

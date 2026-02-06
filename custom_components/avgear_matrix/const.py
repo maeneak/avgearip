@@ -12,9 +12,10 @@ DEFAULT_SCAN_INTERVAL = 30
 
 # Options
 CONF_SCAN_INTERVAL = "scan_interval"
-CONF_OUTPUT_NAMES = "output_names"
 CONF_INPUT_NAMES = "input_names"
 CONF_PRESET_NAMES = "preset_names"
+CONF_NUM_INPUTS = "num_inputs"
+CONF_NUM_OUTPUTS = "num_outputs"
 MAX_NAME_LENGTH = 50
 
 # Device info
