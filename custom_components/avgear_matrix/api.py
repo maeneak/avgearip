@@ -329,6 +329,7 @@ class AVGearMatrixClient:
         """Parse the Status. command response.
         
         Expected response formats:
+        - "AV:01->01 IR:01->01 AV:02->02..." (AVGear format: AV:input->output)
         - "O1-I1 O2-I2 O3-I3..." (compact format)
         - "Output1:Input1 Output2:Input2..." (verbose format)
         - "1:2 3:4..." (simple number pairs)
@@ -338,22 +339,30 @@ class AVGearMatrixClient:
             if out not in self._status.outputs:
                 self._status.outputs[out] = None
 
-        # Pattern: O1-I2 or O01-I02 or Out1:In2
+        # Pattern: Try AVGear format first (AV:input->output), then fallback patterns
         patterns = [
-            r"O(\d+)[:\-]I(\d+)",  # O1-I2 or O1:I2
-            r"Out(?:put)?(\d+)[:\-]In(?:put)?(\d+)",  # Output1:Input2
-            r"(\d+)[:\-](\d+)",  # Simple 1:2 pairs
+            (r"AV:(\d+)->(\d+)", "input_output"),  # AV:01->02 means input 1 to output 2
+            (r"O(\d+)[:\-]I(\d+)", "output_input"),  # O1-I2 or O1:I2
+            (r"Out(?:put)?(\d+)[:\-]In(?:put)?(\d+)", "output_input"),  # Output1:Input2
+            (r"(\d+)[:\-](\d+)", "output_input"),  # Simple 1:2 pairs (output:input)
         ]
 
         parse_success = False
-        for pattern in patterns:
+        for pattern, order in patterns:
             matches = re.findall(pattern, response, re.IGNORECASE)
             if matches:
                 parse_success = True
-                for out_str, in_str in matches:
+                for first_str, second_str in matches:
                     try:
-                        out_num = int(out_str)
-                        in_num = int(in_str)
+                        first_num = int(first_str)
+                        second_num = int(second_str)
+                        
+                        # Determine input and output based on pattern type
+                        if order == "input_output":
+                            in_num, out_num = first_num, second_num
+                        else:  # output_input
+                            out_num, in_num = first_num, second_num
+                        
                         if 1 <= out_num <= self._num_outputs and 0 <= in_num <= self._num_inputs:
                             self._status.outputs[out_num] = in_num if in_num > 0 else None
                     except ValueError:
@@ -366,8 +375,22 @@ class AVGearMatrixClient:
         _LOGGER.debug("Parsed status: %s", self._status.outputs)
 
     def _parse_single_output(self, response: str, output: int) -> int | None:
-        """Parse response for a single output query."""
-        # Try to find an input number in the response
+        """Parse response for a single output query.
+        
+        Handles formats like:
+        - "AV:01->02" (input 1 to output 2)
+        - "Input 3" or "In3"
+        - "closed" or "off" (output is off)
+        """
+        # Try AVGear format (AV:input->output) for the specific output
+        av_match = re.search(rf"AV:(\d+)->{output:02d}", response)
+        if av_match:
+            input_num = int(av_match.group(1))
+            if 1 <= input_num <= self._num_inputs:
+                self._status.outputs[output] = input_num
+                return input_num
+        
+        # Try to find an input number in generic format
         match = re.search(r"[Ii]n(?:put)?[:\s]*(\d+)", response)
         if match:
             input_num = int(match.group(1))
