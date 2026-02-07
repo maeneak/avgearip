@@ -42,10 +42,10 @@ ATTR_DEVICE_ID = "device_id"
 async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry) -> bool:
     """Set up AVGear Matrix Switcher from a config entry."""
     host = entry.data[CONF_HOST]
-    port = entry.data[CONF_PORT]
-    scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-    num_inputs = entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
-    num_outputs = entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
+    port = int(entry.data[CONF_PORT])
+    scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+    num_inputs = int(entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
+    num_outputs = int(entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
 
     client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
 
@@ -167,7 +167,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
         preset_names: dict[str, str] = old_options.get(CONF_PRESET_NAMES, {})
 
         new_options = {
-            CONF_SCAN_INTERVAL: old_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            CONF_SCAN_INTERVAL: int(old_options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
             CONF_INPUT_NAMES: input_names,
             CONF_PRESET_NAMES: preset_names,
         }

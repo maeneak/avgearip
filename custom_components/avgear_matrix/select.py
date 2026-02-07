@@ -32,7 +32,7 @@ async def async_setup_entry(
     """Set up AVGear Matrix select entities."""
     coordinator = entry.runtime_data
 
-    num_outputs = entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
+    num_outputs = int(entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
 
     entities: list[SelectEntity] = [
         AVGearMatrixOutputSelect(coordinator, output_num)
@@ -59,7 +59,7 @@ class AVGearMatrixOutputSelect(AVGearBaseEntity, SelectEntity):
         """Initialize the select entity."""
         super().__init__(coordinator)
         self._output_num = output_num
-        self._num_inputs = coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
+        self._num_inputs = int(coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
 
         # Entity attributes
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_output_{output_num}"
@@ -112,8 +112,8 @@ class AVGearRouteToAllSelect(AVGearBaseEntity, SelectEntity):
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
-        self._num_inputs = coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
-        self._num_outputs = coordinator.config_entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
+        self._num_inputs = int(coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
+        self._num_outputs = int(coordinator.config_entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
 
         # Entity attributes
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_route_to_all"

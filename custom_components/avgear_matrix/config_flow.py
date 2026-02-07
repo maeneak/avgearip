@@ -62,9 +62,9 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = user_input[CONF_HOST]
-            port = user_input[CONF_PORT]
-            num_inputs = user_input[CONF_NUM_INPUTS]
-            num_outputs = user_input[CONF_NUM_OUTPUTS]
+            port = int(user_input[CONF_PORT])
+            num_inputs = int(user_input[CONF_NUM_INPUTS])
+            num_outputs = int(user_input[CONF_NUM_OUTPUTS])
 
             # Set unique ID based on host:port
             await self.async_set_unique_id(f"{host}:{port}")
@@ -79,7 +79,12 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
                 title = info.get("model", "AVGear Matrix") or "AVGear Matrix"
                 return self.async_create_entry(
                     title=title,
-                    data=user_input,
+                    data={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_NUM_INPUTS: num_inputs,
+                        CONF_NUM_OUTPUTS: num_outputs,
+                    },
                 )
             except AVGearConnectionError:
                 errors["base"] = "cannot_connect"
@@ -103,9 +108,9 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = user_input[CONF_HOST]
-            port = user_input[CONF_PORT]
-            num_inputs = user_input[CONF_NUM_INPUTS]
-            num_outputs = user_input[CONF_NUM_OUTPUTS]
+            port = int(user_input[CONF_PORT])
+            num_inputs = int(user_input[CONF_NUM_INPUTS])
+            num_outputs = int(user_input[CONF_NUM_OUTPUTS])
 
             # Test connection
             client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
@@ -115,7 +120,12 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 return self.async_update_reload_and_abort(
                     self._get_reconfigure_entry(),
-                    data_updates=user_input,
+                    data_updates={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_NUM_INPUTS: num_inputs,
+                        CONF_NUM_OUTPUTS: num_outputs,
+                    },
                 )
             except AVGearConnectionError:
                 errors["base"] = "cannot_connect"
@@ -165,7 +175,7 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
         """Manage the options."""
         errors: dict[str, str] = {}
 
-        num_inputs = self.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
+        num_inputs = int(self.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
 
         if user_input is not None:
             # Parse and strip all name fields
@@ -197,7 +207,7 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
                 return self.async_create_entry(
                     title="",
                     data={
-                        CONF_SCAN_INTERVAL: user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                        CONF_SCAN_INTERVAL: int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
                         CONF_INPUT_NAMES: input_names,
                         CONF_PRESET_NAMES: preset_names,
                     },

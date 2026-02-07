@@ -52,9 +52,9 @@ class AVGearMatrixClient:
     ) -> None:
         """Initialize the client."""
         self._host = host
-        self._port = port
-        self._num_inputs = num_inputs
-        self._num_outputs = num_outputs
+        self._port = int(port)
+        self._num_inputs = int(num_inputs)
+        self._num_outputs = int(num_outputs)
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
