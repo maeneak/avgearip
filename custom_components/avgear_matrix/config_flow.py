@@ -9,6 +9,11 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 from .api import AVGearConnectionError, AVGearMatrixClient
 from .const import (
@@ -30,16 +35,16 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+INPUT_OUTPUT_SELECTOR = NumberSelector(
+    NumberSelectorConfig(min=1, max=32, mode=NumberSelectorMode.BOX)
+)
+
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): str,
         vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-        vol.Required(CONF_NUM_INPUTS, default=NUM_INPUTS): vol.All(
-            int, vol.Range(min=1, max=32)
-        ),
-        vol.Required(CONF_NUM_OUTPUTS, default=NUM_OUTPUTS): vol.All(
-            int, vol.Range(min=1, max=32)
-        ),
+        vol.Required(CONF_NUM_INPUTS, default=NUM_INPUTS): INPUT_OUTPUT_SELECTOR,
+        vol.Required(CONF_NUM_OUTPUTS, default=NUM_OUTPUTS): INPUT_OUTPUT_SELECTOR,
     }
 )
 
@@ -134,11 +139,11 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_NUM_INPUTS,
                         default=reconfigure_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS),
-                    ): vol.All(int, vol.Range(min=1, max=32)),
+                    ): INPUT_OUTPUT_SELECTOR,
                     vol.Required(
                         CONF_NUM_OUTPUTS,
                         default=reconfigure_entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS),
-                    ): vol.All(int, vol.Range(min=1, max=32)),
+                    ): INPUT_OUTPUT_SELECTOR,
                 }
             ),
             errors=errors,

@@ -13,6 +13,8 @@ _LOGGER = logging.getLogger(__name__)
 # Connection settings
 DEFAULT_TIMEOUT = 5.0
 COMMAND_DELAY = 0.1  # Delay between commands
+BUFFER_SIZE = 4096  # Socket read buffer size
+DRAIN_TIMEOUT = 0.1  # Timeout for draining additional response data
 
 
 class AVGearConnectionError(Exception):
@@ -100,8 +102,8 @@ class AVGearMatrixClient:
             try:
                 self._writer.close()
                 await self._writer.wait_closed()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug("Error during disconnect: %s", exc)
             finally:
                 self._writer = None
                 self._reader = None
@@ -126,13 +128,13 @@ class AVGearMatrixClient:
 
                 # Read response with timeout; drain any additional data briefly
                 response = await asyncio.wait_for(
-                    self._reader.read(4096),
+                    self._reader.read(BUFFER_SIZE),
                     timeout=DEFAULT_TIMEOUT,
                 )
                 chunks = [response]
                 while True:
                     try:
-                        more = await asyncio.wait_for(self._reader.read(4096), timeout=0.1)
+                        more = await asyncio.wait_for(self._reader.read(BUFFER_SIZE), timeout=DRAIN_TIMEOUT)
                     except asyncio.TimeoutError:
                         break
                     if not more:
@@ -196,7 +198,12 @@ class AVGearMatrixClient:
     # --- Switching Commands ---
 
     async def route_input_to_output(self, input_num: int, output_num: int) -> bool:
-        """Route an input to an output."""
+        """Route an input to an output.
+        
+        Note: Updates internal state optimistically as the AVGear protocol
+        does not provide per-command success/failure responses. State will
+        be synchronized on next status poll.
+        """
         if not (1 <= input_num <= self._num_inputs) or not (1 <= output_num <= self._num_outputs):
             raise AVGearCommandError(f"Input must be 1-{self._num_inputs} and output 1-{self._num_outputs}")
         command = f"{input_num:02d}V{output_num:02d}."
@@ -205,7 +212,10 @@ class AVGearMatrixClient:
         return True
 
     async def route_input_to_all(self, input_num: int) -> bool:
-        """Route an input to all outputs."""
+        """Route an input to all outputs.
+        
+        Note: Updates internal state optimistically. See route_input_to_output.
+        """
         if not (1 <= input_num <= self._num_inputs):
             raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
         command = f"{input_num:02d}All."
@@ -215,7 +225,10 @@ class AVGearMatrixClient:
         return True
 
     async def switch_off_output(self, output_num: int) -> bool:
-        """Switch off (close) an output."""
+        """Switch off (close) an output.
+        
+        Note: Updates internal state optimistically. See route_input_to_output.
+        """
         if not (1 <= output_num <= self._num_outputs):
             raise AVGearCommandError(f"Output must be 1-{self._num_outputs}")
         command = f"{output_num:02d}$."
@@ -232,14 +245,20 @@ class AVGearMatrixClient:
         return True
 
     async def switch_off_all(self) -> bool:
-        """Switch off all outputs."""
+        """Switch off all outputs.
+        
+        Note: Updates internal state optimistically. See route_input_to_output.
+        """
         await self._send_command("All$.")
         for out in range(1, self._num_outputs + 1):
             self._status.outputs[out] = None
         return True
 
     async def all_through(self) -> bool:
-        """Route input 1->out1, 2->out2, etc."""
+        """Route input 1->out1, 2->out2, etc.
+        
+        Note: Updates internal state optimistically. See route_input_to_output.
+        """
         await self._send_command("All#.")
         for i in range(1, self._num_outputs + 1):
             self._status.outputs[i] = i
@@ -307,11 +326,13 @@ class AVGearMatrixClient:
     # --- Parse Helpers ---
 
     def _parse_status_response(self, response: str) -> None:
-        """Parse the Status. command response."""
-        # Response format varies, but typically shows routing like:
-        # "O1-I1 O2-I2 O3-I3..." or "Output1:Input1 Output2:Input2..."
-        # We'll try to parse various formats
-
+        """Parse the Status. command response.
+        
+        Expected response formats:
+        - "O1-I1 O2-I2 O3-I3..." (compact format)
+        - "Output1:Input1 Output2:Input2..." (verbose format)
+        - "1:2 3:4..." (simple number pairs)
+        """
         # Initialize all outputs as None (unknown)
         for out in range(1, self._num_outputs + 1):
             if out not in self._status.outputs:
@@ -324,9 +345,11 @@ class AVGearMatrixClient:
             r"(\d+)[:\-](\d+)",  # Simple 1:2 pairs
         ]
 
+        parse_success = False
         for pattern in patterns:
             matches = re.findall(pattern, response, re.IGNORECASE)
             if matches:
+                parse_success = True
                 for out_str, in_str in matches:
                     try:
                         out_num = int(out_str)
@@ -337,6 +360,9 @@ class AVGearMatrixClient:
                         continue
                 break
 
+        if not parse_success and response:
+            _LOGGER.warning("Failed to parse status response: %s", response)
+        
         _LOGGER.debug("Parsed status: %s", self._status.outputs)
 
     def _parse_single_output(self, response: str, output: int) -> int | None:

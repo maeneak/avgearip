@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING
-
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator, UpdateFailed
 
 from .api import AVGearConnectionError, AVGearMatrixClient, MatrixStatus
 from .const import CONF_INPUT_NAMES, CONF_PRESET_NAMES, DEFAULT_SCAN_INTERVAL, DOMAIN
-
-if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,6 +24,7 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         self,
         hass: HomeAssistant,
         client: AVGearMatrixClient,
+        config_entry: ConfigEntry,
         scan_interval: int = DEFAULT_SCAN_INTERVAL,
     ) -> None:
         """Initialize the coordinator."""
@@ -35,6 +33,7 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
             _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=scan_interval),
+            config_entry=config_entry,
         )
         self.client = client
         self._device_info: dict[str, str] = {}
@@ -49,6 +48,14 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
     def current_preset(self) -> int | None:
         """Return the currently selected preset."""
         return self._current_preset
+
+    def async_reset_current_preset(self) -> None:
+        """Reset preset tracking.
+        
+        Call this after device reconnection or when preset state may be
+        out of sync (e.g., controlled by another client).
+        """
+        self._current_preset = None
 
     async def async_setup(self) -> None:
         """Set up the coordinator and fetch initial device info."""
@@ -66,16 +73,29 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         """Fetch data from the matrix."""
         try:
             status = await self.client.get_status()
-            # Also update power and lock status periodically
-            await self.client.get_power_state()
-            await self.client.get_lock_status()
-            return status
         except AVGearConnectionError as err:
             raise UpdateFailed(f"Error communicating with AVGear Matrix: {err}") from err
+
+        # Best-effort supplementary data — don't fail the whole update
+        try:
+            await self.client.get_power_state()
+        except AVGearConnectionError:
+            _LOGGER.debug("Failed to fetch power state")
+        try:
+            await self.client.get_lock_status()
+        except AVGearConnectionError:
+            _LOGGER.debug("Failed to fetch lock status")
+
+        return status
 
     async def async_route_input(self, input_num: int, output_num: int) -> None:
         """Route an input to an output and refresh."""
         await self.client.route_input_to_output(input_num, output_num)
+        await self.async_request_refresh()
+
+    async def async_route_input_to_all(self, input_num: int) -> None:
+        """Route an input to all outputs and refresh."""
+        await self.client.route_input_to_all(input_num)
         await self.async_request_refresh()
 
     async def async_switch_off_output(self, output_num: int) -> None:
@@ -128,3 +148,16 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         """Get custom name for a preset or return default."""
         preset_names = self.config_entry.options.get(CONF_PRESET_NAMES, {})
         return preset_names.get(str(preset_num), f"Preset {preset_num}")
+
+
+class AVGearBaseEntity(CoordinatorEntity[AVGearMatrixCoordinator]):
+    """Base entity for AVGear Matrix devices."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
+        """Initialize the base entity."""
+        super().__init__(coordinator)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        )

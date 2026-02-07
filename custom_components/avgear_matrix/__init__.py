@@ -49,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry)
 
     client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
 
-    coordinator = AVGearMatrixCoordinator(hass, client, scan_interval)
+    coordinator = AVGearMatrixCoordinator(hass, client, entry, scan_interval)
 
     try:
         await coordinator.async_setup()
@@ -124,6 +124,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry)
                     vol.Optional(ATTR_DEVICE_ID): str,
                 }
             ),
+            supports_response=False,
         )
 
     return True

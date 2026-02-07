@@ -7,13 +7,11 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import AVGearConnectionError
-from .const import DOMAIN
-from .coordinator import AVGearMatrixCoordinator
+from .coordinator import AVGearBaseEntity, AVGearMatrixCoordinator
 
 if TYPE_CHECKING:
     from . import AVGearMatrixConfigEntry
@@ -30,38 +28,25 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
 
     entities: list[ButtonEntity] = [
-        AVGearSavePresetButton(coordinator, entry),
-        AVGearAllThroughButton(coordinator, entry),
-        AVGearAllOffButton(coordinator, entry),
+        AVGearSavePresetButton(coordinator),
+        AVGearAllThroughButton(coordinator),
+        AVGearAllOffButton(coordinator),
     ]
 
     async_add_entities(entities)
 
 
-class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
+class AVGearSavePresetButton(AVGearBaseEntity, ButtonEntity):
     """Button to save current state to the selected preset."""
 
-    _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_translation_key = "save_preset"
+    _attr_name = "Save Preset"
     _attr_icon = "mdi:bookmark-plus"
 
-    def __init__(
-        self,
-        coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
-    ) -> None:
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
-        self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_save_preset"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_save_preset"
 
     async def async_press(self) -> None:
         """Save current routing to the selected preset."""
@@ -76,60 +61,32 @@ class AVGearSavePresetButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonE
             _LOGGER.error("Failed to save preset %d: %s", preset, err)
 
 
-class AVGearAllThroughButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
+class AVGearAllThroughButton(AVGearBaseEntity, ButtonEntity):
     """Button to route all inputs to corresponding outputs."""
 
-    _attr_has_entity_name = True
+    _attr_name = "All Through"
+    _attr_icon = "mdi:swap-horizontal"
 
-    def __init__(
-        self,
-        coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
-    ) -> None:
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
-        self._entry = entry
-
-        self._attr_unique_id = f"{entry.entry_id}_all_through"
-        self._attr_name = "All Through"
-        self._attr_icon = "mdi:swap-horizontal"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_all_through"
 
     async def async_press(self) -> None:
         """Handle the button press."""
         await self.coordinator.async_all_through()
 
 
-class AVGearAllOffButton(CoordinatorEntity[AVGearMatrixCoordinator], ButtonEntity):
+class AVGearAllOffButton(AVGearBaseEntity, ButtonEntity):
     """Button to switch off all outputs."""
 
-    _attr_has_entity_name = True
+    _attr_name = "All Off"
+    _attr_icon = "mdi:power-off"
 
-    def __init__(
-        self,
-        coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
-    ) -> None:
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
         """Initialize the button."""
         super().__init__(coordinator)
-        self._entry = entry
-
-        self._attr_unique_id = f"{entry.entry_id}_all_off"
-        self._attr_name = "All Off"
-        self._attr_icon = "mdi:power-off"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_all_off"
 
     async def async_press(self) -> None:
         """Handle the button press."""

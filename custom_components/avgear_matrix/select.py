@@ -6,20 +6,17 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_NUM_INPUTS,
     CONF_NUM_OUTPUTS,
-    DOMAIN,
     NUM_INPUTS,
     NUM_OUTPUTS,
     NUM_PRESETS,
 )
-from .coordinator import AVGearMatrixCoordinator
+from .coordinator import AVGearBaseEntity, AVGearMatrixCoordinator
 
 if TYPE_CHECKING:
     from . import AVGearMatrixConfigEntry
@@ -38,38 +35,34 @@ async def async_setup_entry(
     num_outputs = entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
 
     entities: list[SelectEntity] = [
-        AVGearMatrixOutputSelect(coordinator, entry, output_num)
+        AVGearMatrixOutputSelect(coordinator, output_num)
         for output_num in range(1, num_outputs + 1)
     ]
 
     # Add "Route to All" select entity
-    entities.append(AVGearRouteToAllSelect(coordinator, entry))
+    entities.append(AVGearRouteToAllSelect(coordinator))
 
     # Add preset select entity
-    entities.append(AVGearPresetSelect(coordinator, entry))
+    entities.append(AVGearPresetSelect(coordinator))
 
     async_add_entities(entities)
 
 
-class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectEntity):
+class AVGearMatrixOutputSelect(AVGearBaseEntity, SelectEntity):
     """Select entity for an AVGear Matrix output."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
         coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
         output_num: int,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
         self._output_num = output_num
-        self._entry = entry
-        self._num_inputs = entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
+        self._num_inputs = coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
 
         # Entity attributes
-        self._attr_unique_id = f"{entry.entry_id}_output_{output_num}"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_output_{output_num}"
         self._attr_name = f"Output {output_num}"
 
     @property
@@ -78,13 +71,6 @@ class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], Selec
         options = [self.coordinator.get_input_name(i) for i in range(1, self._num_inputs + 1)]
         options.append("Off")
         return options
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
 
     @property
     def current_option(self) -> str | None:
@@ -116,44 +102,28 @@ class AVGearMatrixOutputSelect(CoordinatorEntity[AVGearMatrixCoordinator], Selec
             else:
                 _LOGGER.error("Invalid input option: %s", option)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
 
-
-class AVGearRouteToAllSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectEntity):
+class AVGearRouteToAllSelect(AVGearBaseEntity, SelectEntity):
     """Select entity to route an input to all outputs."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
         coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
-        self._entry = entry
-        self._num_inputs = entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
-        self._num_outputs = entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
+        self._num_inputs = coordinator.config_entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS)
+        self._num_outputs = coordinator.config_entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS)
 
         # Entity attributes
-        self._attr_unique_id = f"{entry.entry_id}_route_to_all"
-        self._attr_translation_key = "route_to_all_outputs"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_route_to_all"
+        self._attr_name = "Route to All Outputs"
         self._attr_icon = "mdi:video-input-hdmi"
 
     @property
     def options(self) -> list[str]:
         """Return available input options dynamically."""
         return [self.coordinator.get_input_name(i) for i in range(1, self._num_inputs + 1)]
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
 
     @property
     def current_option(self) -> str | None:
@@ -189,46 +159,29 @@ class AVGearRouteToAllSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectE
                 break
 
         if input_num:
-            await self.coordinator.client.route_input_to_all(input_num)
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_route_input_to_all(input_num)
         else:
             _LOGGER.error("Invalid input option: %s", option)
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
 
-
-class AVGearPresetSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectEntity):
+class AVGearPresetSelect(AVGearBaseEntity, SelectEntity):
     """Select entity to recall a preset."""
 
-    _attr_has_entity_name = True
-    _attr_translation_key = "preset"
+    _attr_name = "Preset"
     _attr_icon = "mdi:bookmark-outline"
 
     def __init__(
         self,
         coordinator: AVGearMatrixCoordinator,
-        entry: AVGearMatrixConfigEntry,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
-        self._entry = entry
-
-        self._attr_unique_id = f"{entry.entry_id}_preset"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_preset"
 
     @property
     def options(self) -> list[str]:
         """Return available preset options dynamically."""
         return [self.coordinator.get_preset_name(i) for i in range(NUM_PRESETS)]
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
 
     @property
     def current_option(self) -> str | None:
@@ -251,8 +204,3 @@ class AVGearPresetSelect(CoordinatorEntity[AVGearMatrixCoordinator], SelectEntit
             await self.coordinator.async_recall_preset(preset_num)
         else:
             _LOGGER.error("Invalid preset option: %s", option)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
