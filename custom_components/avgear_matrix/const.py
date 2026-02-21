@@ -5,6 +5,7 @@ DOMAIN = "avgear_matrix"
 # Config keys
 CONF_HOST = "host"
 CONF_PORT = "port"
+CONF_DEVICE_UID = "device_uid"
 
 # Defaults
 DEFAULT_PORT = 4001

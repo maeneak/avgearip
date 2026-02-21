@@ -12,10 +12,9 @@ A Home Assistant custom integration to control AVGear HDMI Matrix Switchers (AVG
 - **Panel Lock**: Lock/unlock the front panel buttons remotely
 - **Standby Control**: Put the matrix in/out of standby mode
 - **Custom Input Names**: Name your inputs (e.g., "Blu-ray Player", "Cable Box") in integration options
-- **Custom Output Names**: Name your outputs (e.g., "Living Room TV", "Bedroom TV") in integration options
 - **Custom Preset Names**: Name your presets (e.g., "Movie Night", "Gaming Setup") in integration options
 - **Configurable Polling**: Adjust the status update interval (default: 30 seconds)
-- **Name Validation**: Max 50 characters per name, duplicate input name detection
+- **Name Validation**: Max 50 characters per name, duplicate (case-insensitive) input/preset detection
 
 ## Supported Devices
 
@@ -67,8 +66,7 @@ After setup, the integration creates the following entities:
 - Options: Custom input names (or Input 1-8 by default)
 
 ### Button Entities
-- **Preset 0-9 Recall**: Recall saved routing configurations (uses custom preset names)
-- **Preset 0-9 Save**: Save current routing to a preset (uses custom preset names)
+- **Save Preset**: Saves current routing to the currently selected preset
 - **All Through**: Route Input 1→Output 1, Input 2→Output 2, etc.
 - **All Off**: Switch off all outputs
 
@@ -82,8 +80,7 @@ After adding the integration, you can configure:
 
 1. **Update Interval**: How often to poll the matrix for status (5-300 seconds, default: 30)
 2. **Input Names**: Custom names for each input (e.g., "Blu-ray Player", "Cable Box") — max 50 characters, must be unique
-3. **Output Names**: Custom names for each output (e.g., "Living Room TV", "Bedroom TV") — max 50 characters
-4. **Preset Names**: Custom names for each preset (e.g., "Movie Night", "Gaming Setup") — max 50 characters
+3. **Preset Names**: Custom names for each preset (e.g., "Movie Night", "Gaming Setup") — max 50 characters, must be unique
 
 > **Note**: Input names must be unique across all inputs, since they are used to identify which source to route. If duplicate names are detected, the options flow will show an error.
 
@@ -114,9 +111,11 @@ automation:
       - platform: state
         entity_id: scene.movie_night
     action:
-      - service: button.press
+      - service: select.select_option
         target:
-          entity_id: button.avgear_matrix_recall_preset_1
+          entity_id: select.avgear_matrix_preset
+        data:
+          option: "Movie Night"
 ```
 
 ### Turn off all outputs at night
@@ -135,24 +134,7 @@ automation:
 
 ## Upgrading
 
-### From v1.0.x to v1.1.0
-
-Version 1.1.0 adds custom naming for inputs, outputs, and presets with a config entry schema migration (v1 → v2).
-
-**What happens automatically:**
-- Existing output names you configured in v1.0.x are preserved and migrated to the new format
-- The config entry version is updated from 1 to 2
-- New input and preset name fields appear in integration options (initially empty/default)
-- Preset buttons now display custom names instead of generic "Preset 0", "Preset 1", etc.
-
-**Steps:**
-1. Update the integration via HACS or replace the `custom_components/avgear_matrix` folder
-2. Restart Home Assistant
-3. The migration runs automatically — no manual action needed
-4. Go to **Settings** → **Devices & Services** → **AVGear Matrix** → **Configure** to set custom input and preset names
-
-**Breaking changes:**
-- If you have automations using `"Input 1"`, `"Input 2"`, etc. as select options, they will continue to work as long as you don't rename those inputs. Once you assign custom input names, update your automations to use the new names.
+For major updates, review release notes before upgrading. If a release notes entry indicates config-entry schema changes, remove and re-add the integration to refresh stored device metadata.
 
 ## Troubleshooting
 

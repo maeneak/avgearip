@@ -169,7 +169,8 @@ class AVGearMatrixClient:
     async def get_status(self) -> MatrixStatus:
         """Query full routing status."""
         response = await self._send_command("Status.")
-        self._parse_status_response(response)
+        parsed_outputs = self._parse_status_response(response)
+        self._status.outputs = parsed_outputs
         return self._status
 
     async def get_output_status(self, output: int) -> int | None:
@@ -325,7 +326,7 @@ class AVGearMatrixClient:
 
     # --- Parse Helpers ---
 
-    def _parse_status_response(self, response: str) -> None:
+    def _parse_status_response(self, response: str) -> dict[int, int | None]:
         """Parse the Status. command response.
         
         Expected response formats:
@@ -334,10 +335,8 @@ class AVGearMatrixClient:
         - "Output1:Input1 Output2:Input2..." (verbose format)
         - "1:2 3:4..." (simple number pairs)
         """
-        # Initialize all outputs as None (unknown)
-        for out in range(1, self._num_outputs + 1):
-            if out not in self._status.outputs:
-                self._status.outputs[out] = None
+        parsed_outputs = {out: None for out in range(1, self._num_outputs + 1)}
+        covered_outputs: set[int] = set()
 
         # Pattern: Try AVGear format first (AV:input->output), then fallback patterns
         patterns = [
@@ -351,28 +350,40 @@ class AVGearMatrixClient:
         for pattern, order in patterns:
             matches = re.findall(pattern, response, re.IGNORECASE)
             if matches:
-                parse_success = True
+                valid_match_count = 0
                 for first_str, second_str in matches:
                     try:
                         first_num = int(first_str)
                         second_num = int(second_str)
-                        
+
                         # Determine input and output based on pattern type
                         if order == "input_output":
                             in_num, out_num = first_num, second_num
                         else:  # output_input
                             out_num, in_num = first_num, second_num
-                        
+
                         if 1 <= out_num <= self._num_outputs and 0 <= in_num <= self._num_inputs:
-                            self._status.outputs[out_num] = in_num if in_num > 0 else None
+                            valid_match_count += 1
+                            parsed_outputs[out_num] = in_num if in_num > 0 else None
+                            covered_outputs.add(out_num)
                     except ValueError:
                         continue
-                break
 
-        if not parse_success and response:
-            _LOGGER.warning("Failed to parse status response: %s", response)
-        
-        _LOGGER.debug("Parsed status: %s", self._status.outputs)
+                if valid_match_count > 0:
+                    parse_success = True
+                    break
+
+        if not parse_success:
+            raise AVGearCommandError(f"Failed to parse status response: {response!r}")
+
+        missing_outputs = set(range(1, self._num_outputs + 1)) - covered_outputs
+        if missing_outputs:
+            raise AVGearCommandError(
+                f"Incomplete status response; missing outputs: {sorted(missing_outputs)}"
+            )
+
+        _LOGGER.debug("Parsed status: %s", parsed_outputs)
+        return parsed_outputs
 
     def _parse_single_output(self, response: str, output: int) -> int | None:
         """Parse response for a single output query.

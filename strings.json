@@ -27,12 +27,15 @@
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Reconfiguration was successful."
     }
   },
   "options": {
     "error": {
-      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors."
+      "duplicate_input_names": "Each input must have a unique name. Duplicate input names would cause routing errors.",
+      "duplicate_preset_names": "Each preset must have a unique name. Duplicate preset names would cause selection ambiguity.",
+      "reserved_input_name": "The input name \"Off\" is reserved. Please choose a different name."
     },
     "step": {
       "init": {
@@ -157,6 +160,10 @@
         "preset": {
           "name": "Preset",
           "description": "The preset number to save to (0-9)."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "Target AVGear Matrix device. Required if multiple devices are loaded."
         }
       }
     }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 import voluptuous as vol
 
@@ -17,6 +18,7 @@ from homeassistant.helpers.selector import (
 
 from .api import AVGearConnectionError, AVGearMatrixClient
 from .const import (
+    CONF_DEVICE_UID,
     CONF_HOST,
     CONF_INPUT_NAMES,
     CONF_NUM_INPUTS,
@@ -54,6 +56,22 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 4
 
+    def _endpoint_in_use(
+        self,
+        host: str,
+        port: int,
+        ignore_entry_id: str | None = None,
+    ) -> bool:
+        """Return True when the given endpoint already exists in another entry."""
+        for entry in self._async_current_entries():
+            if ignore_entry_id and entry.entry_id == ignore_entry_id:
+                continue
+            entry_host = entry.data.get(CONF_HOST)
+            entry_port = int(entry.data.get(CONF_PORT, DEFAULT_PORT))
+            if entry_host == host and entry_port == port:
+                return True
+        return False
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -66,15 +84,17 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
             num_inputs = int(user_input[CONF_NUM_INPUTS])
             num_outputs = int(user_input[CONF_NUM_OUTPUTS])
 
-            # Set unique ID based on host:port
-            await self.async_set_unique_id(f"{host}:{port}")
+            if self._endpoint_in_use(host, port):
+                return self.async_abort(reason="already_configured")
+
+            device_uid = uuid4().hex
+            await self.async_set_unique_id(device_uid)
             self._abort_if_unique_id_configured()
 
             # Test connection
             client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
             try:
                 info = await client.test_connection()
-                await client.disconnect()
 
                 title = info.get("model", "AVGear Matrix") or "AVGear Matrix"
                 return self.async_create_entry(
@@ -84,6 +104,7 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_PORT: port,
                         CONF_NUM_INPUTS: num_inputs,
                         CONF_NUM_OUTPUTS: num_outputs,
+                        CONF_DEVICE_UID: device_uid,
                     },
                 )
             except AVGearConnectionError:
@@ -107,26 +128,19 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            reconfigure_entry = self._get_reconfigure_entry()
             host = user_input[CONF_HOST]
             port = int(user_input[CONF_PORT])
             num_inputs = int(user_input[CONF_NUM_INPUTS])
             num_outputs = int(user_input[CONF_NUM_OUTPUTS])
 
+            if self._endpoint_in_use(host, port, ignore_entry_id=reconfigure_entry.entry_id):
+                return self.async_abort(reason="already_configured")
+
             # Test connection
             client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
             try:
                 await client.test_connection()
-                await client.disconnect()
-
-                return self.async_update_reload_and_abort(
-                    self._get_reconfigure_entry(),
-                    data_updates={
-                        CONF_HOST: host,
-                        CONF_PORT: port,
-                        CONF_NUM_INPUTS: num_inputs,
-                        CONF_NUM_OUTPUTS: num_outputs,
-                    },
-                )
             except AVGearConnectionError:
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
@@ -134,6 +148,22 @@ class AVGearMatrixConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             finally:
                 await client.disconnect()
+
+            if not errors:
+                device_uid = reconfigure_entry.data.get(CONF_DEVICE_UID) or uuid4().hex
+                await self.async_set_unique_id(device_uid)
+                self._abort_if_unique_id_mismatch()
+
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_NUM_INPUTS: num_inputs,
+                        CONF_NUM_OUTPUTS: num_outputs,
+                        CONF_DEVICE_UID: device_uid,
+                    },
+                )
 
         reconfigure_entry = self._get_reconfigure_entry()
         return self.async_show_form(
@@ -195,12 +225,14 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
             input_name_values = list(input_names.values())
             if any(name.strip().casefold() == "off" for name in input_name_values):
                 errors["base"] = "reserved_input_name"
-            elif len(input_name_values) != len(set(input_name_values)):
+            elif len(input_name_values) != len({name.casefold() for name in input_name_values}):
                 errors["base"] = "duplicate_input_names"
 
             # Check for duplicate preset names (would cause selection ambiguity)
             preset_name_values = list(preset_names.values())
-            if not errors and len(preset_name_values) != len(set(preset_name_values)):
+            if not errors and len(preset_name_values) != len(
+                {name.casefold() for name in preset_name_values}
+            ):
                 errors["base"] = "duplicate_preset_names"
 
             if not errors:
@@ -224,13 +256,9 @@ class AVGearMatrixOptionsFlow(OptionsFlow):
         if user_input is not None:
             current_interval = user_input.get(CONF_SCAN_INTERVAL, current_interval)
             for i in range(1, num_inputs + 1):
-                val = user_input.get(f"input_{i}_name", "").strip()
-                if val:
-                    current_input_names[str(i)] = val
+                current_input_names[str(i)] = user_input.get(f"input_{i}_name", "").strip()
             for i in range(NUM_PRESETS):
-                val = user_input.get(f"preset_{i}_name", "").strip()
-                if val:
-                    current_preset_names[str(i)] = val
+                current_preset_names[str(i)] = user_input.get(f"preset_{i}_name", "").strip()
 
         # Name validator: enforce max length
         name_validator = vol.All(str, vol.Length(max=MAX_NAME_LENGTH))

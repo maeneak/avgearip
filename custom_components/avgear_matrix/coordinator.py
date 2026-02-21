@@ -9,8 +9,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator, UpdateFailed
 
-from .api import AVGearConnectionError, AVGearMatrixClient, MatrixStatus
-from .const import CONF_INPUT_NAMES, CONF_PRESET_NAMES, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .api import AVGearCommandError, AVGearConnectionError, AVGearMatrixClient, MatrixStatus
+from .const import (
+    CONF_DEVICE_UID,
+    CONF_INPUT_NAMES,
+    CONF_PRESET_NAMES,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +79,7 @@ class AVGearMatrixCoordinator(DataUpdateCoordinator[MatrixStatus]):
         """Fetch data from the matrix."""
         try:
             status = await self.client.get_status()
-        except AVGearConnectionError as err:
+        except (AVGearConnectionError, AVGearCommandError) as err:
             raise UpdateFailed(f"Error communicating with AVGear Matrix: {err}") from err
 
         # Best-effort supplementary data — don't fail the whole update
@@ -158,6 +164,7 @@ class AVGearBaseEntity(CoordinatorEntity[AVGearMatrixCoordinator]):
     def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
         """Initialize the base entity."""
         super().__init__(coordinator)
+        device_uid = coordinator.config_entry.data.get(CONF_DEVICE_UID, coordinator.config_entry.entry_id)
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+            identifiers={(DOMAIN, device_uid)},
         )

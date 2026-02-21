@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import voluptuous as vol
 
@@ -11,9 +12,11 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.typing import ConfigType
 
 from .api import AVGearConnectionError, AVGearMatrixClient
 from .const import (
+    CONF_DEVICE_UID,
     CONF_HOST,
     CONF_INPUT_NAMES,
     CONF_NUM_INPUTS,
@@ -32,60 +35,32 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SELECT, Platform.BUTTON, Platform.SWITCH]
 
-AVGearMatrixConfigEntry = ConfigEntry[AVGearMatrixCoordinator]
+if TYPE_CHECKING:
+    AVGearMatrixConfigEntry: TypeAlias = ConfigEntry[AVGearMatrixCoordinator]
+else:
+    AVGearMatrixConfigEntry = ConfigEntry
 
 SERVICE_SAVE_PRESET = "save_preset"
 ATTR_PRESET = "preset"
 ATTR_DEVICE_ID = "device_id"
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry) -> bool:
-    """Set up AVGear Matrix Switcher from a config entry."""
-    host = entry.data[CONF_HOST]
-    port = int(entry.data[CONF_PORT])
-    scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
-    num_inputs = int(entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
-    num_outputs = int(entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up AVGear Matrix integration."""
 
-    client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
-
-    coordinator = AVGearMatrixCoordinator(hass, client, entry, scan_interval)
-
-    try:
-        await coordinator.async_setup()
-    except AVGearConnectionError as err:
-        await client.disconnect()
-        raise ConfigEntryNotReady(f"Cannot connect to {host}:{port}") from err
-
-    await coordinator.async_config_entry_first_refresh()
-
-    entry.runtime_data = coordinator
-
-    # Register device
-    device_registry = dr.async_get(hass)
-    device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.title,
-        manufacturer="AVGear",
-        model=coordinator.device_info.get("model", "Matrix Switcher"),
-        sw_version=coordinator.device_info.get("firmware"),
-    )
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
-
-    # Register services
     async def handle_save_preset(call: ServiceCall) -> None:
         """Handle the save_preset service call."""
         preset = call.data[ATTR_PRESET]
         device_id = call.data.get(ATTR_DEVICE_ID)
 
-        loaded_entries = [
-            e for e in hass.config_entries.async_entries(DOMAIN)
-            if e.state is ConfigEntryState.LOADED
-        ]
+        loaded_entries: list[AVGearMatrixConfigEntry] = cast(
+            list[AVGearMatrixConfigEntry],
+            [
+                entry
+                for entry in hass.config_entries.async_entries(DOMAIN)
+                if entry.state is ConfigEntryState.LOADED
+            ],
+        )
 
         if not loaded_entries:
             raise ServiceValidationError("No AVGear Matrix devices are loaded")
@@ -118,9 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry)
             handle_save_preset,
             schema=vol.Schema(
                 {
-                    vol.Required(ATTR_PRESET): vol.All(
-                        int, vol.Range(min=0, max=9)
-                    ),
+                    vol.Required(ATTR_PRESET): vol.All(int, vol.Range(min=0, max=9)),
                     vol.Optional(ATTR_DEVICE_ID): str,
                 }
             ),
@@ -130,19 +103,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry)
     return True
 
 
+async def async_setup_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry) -> bool:
+    """Set up AVGear Matrix Switcher from a config entry."""
+    host = entry.data[CONF_HOST]
+    port = int(entry.data[CONF_PORT])
+    scan_interval = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+    num_inputs = int(entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
+    num_outputs = int(entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
+
+    client = AVGearMatrixClient(host, port, num_inputs, num_outputs)
+
+    coordinator = AVGearMatrixCoordinator(hass, client, entry, scan_interval)
+
+    try:
+        await coordinator.async_setup()
+    except AVGearConnectionError as err:
+        await client.disconnect()
+        raise ConfigEntryNotReady(f"Cannot connect to {host}:{port}") from err
+
+    await coordinator.async_config_entry_first_refresh()
+
+    entry.runtime_data = coordinator
+
+    # Register device
+    device_uid = entry.data.get(CONF_DEVICE_UID, entry.entry_id)
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, device_uid)},
+        name=entry.title,
+        manufacturer="AVGear",
+        model=coordinator.device_info.get("model", "Matrix Switcher"),
+        sw_version=coordinator.device_info.get("firmware"),
+    )
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: AVGearMatrixConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         coordinator = entry.runtime_data
         await coordinator.client.disconnect()
-
-    # Unregister service if no more loaded entries remain
-    loaded_entries = [
-        e for e in hass.config_entries.async_entries(DOMAIN)
-        if e.state is ConfigEntryState.LOADED and e.entry_id != entry.entry_id
-    ]
-    if unload_ok and not loaded_entries:
-        hass.services.async_remove(DOMAIN, SERVICE_SAVE_PRESET)
 
     return unload_ok
 
