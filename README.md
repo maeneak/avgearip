@@ -11,6 +11,9 @@ A Home Assistant custom integration to control AVGear HDMI Matrix Switchers (AVG
 - **Quick Actions**: "All Through" and "All Off" buttons for common operations
 - **Panel Lock**: Lock/unlock the front panel buttons remotely
 - **Standby Control**: Put the matrix in/out of standby mode
+- **EDID Management**: Per-input selection of the six built-in EDID profiles, a "Reset All EDID" button, plus services for copying a display's EDID onto an input, forcing PCM audio downmix, and dumping raw EDID hex
+- **HDCP Management**: Per-input and per-output HDCP compliance switches, plus an "Auto HDCP Management" button
+- **Diagnostic Sensors** _(disabled by default)_: Per-port cable-connection and HDCP-active binary sensors, per-output resolution sensors
 - **Custom Input Names**: Name your inputs (e.g., "Blu-ray Player", "Cable Box") in integration options
 - **Custom Preset Names**: Name your presets (e.g., "Movie Night", "Gaming Setup") in integration options
 - **Configurable Polling**: Adjust the status update interval (default: 30 seconds)
@@ -73,6 +76,40 @@ After setup, the integration creates the following entities:
 ### Switch Entities
 - **Panel Lock**: Lock/unlock front panel buttons
 - **Standby**: Enable/disable standby mode
+- **Input _N_ HDCP**: Per-input HDCP compliance setting (HDCPEN). Turn off to let a non-HDCP source pass through unencrypted.
+- **Output _N_ HDCP**: Per-output HDCP compliance. Turn off for non-HDCP sinks (capture cards, older projectors). ⚠️ Protected content may refuse to play if you disable HDCP on a compliant display.
+
+### EDID Controls
+
+- **_Input N_ EDID** _(select)_: Choose one of six built-in EDID profiles per input — `1080p 2D 2CH`, `1080p 3D 2CH`, `1080p 2D Multichannel`, `1080p 3D Multichannel`, `4K 30Hz 2D`, `4K 60Hz 2D`. State is optimistic: after a Home Assistant restart the select is blank until you re-apply a profile.
+- **Reset All EDID** _(button)_: Factory-restore every input's EDID.
+- **Auto HDCP Management** _(button)_: Trigger the matrix's built-in auto HDCP routine.
+
+### Diagnostic Sensors _(disabled by default)_
+
+Enable individually via entity settings:
+
+- **_Input N_ Connected**: Binary sensor — is an HDMI cable plugged in?
+- **Output _N_ Connected**: Binary sensor — is a display plugged in?
+- **_Input N_ HDCP Active**: Binary sensor — is the source currently sending encrypted content? (Distinct from the _Input N_ HDCP switch: the switch sets the HDCPEN compliance flag, this sensor reflects live negotiation.)
+- **Output _N_ Resolution**: Sensor — current output resolution string (e.g., `1920x1080p`, `3840x2160p`).
+
+### Services
+
+- `avgear_matrix.save_preset`: Save current routing to preset 0–9.
+- `avgear_matrix.copy_edid_from_output`: Copy the EDID from a display (output) onto an input so sources negotiate the display's native modes.
+- `avgear_matrix.force_input_pcm`: Modify an input's EDID to advertise PCM audio only. One-way — to revert, re-apply a built-in profile or use Reset All EDID.
+- `avgear_matrix.dump_edid`: Read raw EDID bytes as a hex string from an input, an output's display, or a built-in slot. Returns `{hex, length, source, number}`. Diagnostic tool for HDMI handshake troubleshooting.
+
+Example — copy the living-room TV's EDID onto input 3:
+
+```yaml
+action:
+  - service: avgear_matrix.copy_edid_from_output
+    data:
+      input: 3
+      output: 1
+```
 
 ## Options
 

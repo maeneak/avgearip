@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_NUM_INPUTS,
     CONF_NUM_OUTPUTS,
+    EDID_PROFILES,
     NUM_INPUTS,
     NUM_OUTPUTS,
     NUM_PRESETS,
@@ -32,6 +34,7 @@ async def async_setup_entry(
     """Set up AVGear Matrix select entities."""
     coordinator = entry.runtime_data
 
+    num_inputs = int(entry.data.get(CONF_NUM_INPUTS, NUM_INPUTS))
     num_outputs = int(entry.data.get(CONF_NUM_OUTPUTS, NUM_OUTPUTS))
 
     entities: list[SelectEntity] = [
@@ -44,6 +47,12 @@ async def async_setup_entry(
 
     # Add preset select entity
     entities.append(AVGearPresetSelect(coordinator))
+
+    # One EDID profile select per input
+    entities.extend(
+        AVGearInputEDIDSelect(coordinator, input_num)
+        for input_num in range(1, num_inputs + 1)
+    )
 
     async_add_entities(entities)
 
@@ -204,3 +213,49 @@ class AVGearPresetSelect(AVGearBaseEntity, SelectEntity):
             await self.coordinator.async_recall_preset(preset_num)
         else:
             _LOGGER.error("Invalid preset option: %s", option)
+
+
+class AVGearInputEDIDSelect(AVGearBaseEntity, SelectEntity):
+    """Select entity to choose an input's EDID profile.
+
+    State is optimistic — the firmware has no reliable readback for the
+    active slot on an input, so ``current_option`` reflects whatever profile
+    the integration last applied (stored on the coordinator). After a HA
+    restart the state is unknown until the user picks a profile.
+    """
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:video-input-hdmi"
+    _attr_options = list(EDID_PROFILES.values())
+
+    def __init__(
+        self,
+        coordinator: AVGearMatrixCoordinator,
+        input_num: int,
+    ) -> None:
+        """Initialize the EDID select."""
+        super().__init__(coordinator)
+        self._input_num = input_num
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_input_{input_num}_edid"
+
+    @property
+    def name(self) -> str:
+        """Return a dynamic name based on the input's custom name."""
+        return f"{self.coordinator.get_input_name(self._input_num)} EDID"
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the last-applied profile name, if known."""
+        profile = self.coordinator.get_current_edid_profile(self._input_num)
+        if profile is None:
+            return None
+        return EDID_PROFILES.get(profile)
+
+    async def async_select_option(self, option: str) -> None:
+        """Apply a built-in EDID profile to this input."""
+        for slot, label in EDID_PROFILES.items():
+            if label == option:
+                await self.coordinator.async_set_input_edid(self._input_num, slot)
+                self.async_write_ha_state()
+                return
+        _LOGGER.error("Invalid EDID profile option: %s", option)

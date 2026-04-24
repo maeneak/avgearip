@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
-from .api import AVGearConnectionError, AVGearMatrixClient
+from .api import AVGearCommandError, AVGearConnectionError, AVGearMatrixClient
 from .const import (
     CONF_DEVICE_UID,
     CONF_HOST,
@@ -33,7 +33,13 @@ from .coordinator import AVGearMatrixCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SELECT, Platform.BUTTON, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.SELECT,
+    Platform.BUTTON,
+    Platform.SWITCH,
+    Platform.BINARY_SENSOR,
+    Platform.SENSOR,
+]
 
 if TYPE_CHECKING:
     AVGearMatrixConfigEntry: TypeAlias = ConfigEntry[AVGearMatrixCoordinator]
@@ -41,18 +47,32 @@ else:
     AVGearMatrixConfigEntry = ConfigEntry
 
 SERVICE_SAVE_PRESET = "save_preset"
+SERVICE_COPY_EDID_FROM_OUTPUT = "copy_edid_from_output"
+SERVICE_FORCE_INPUT_PCM = "force_input_pcm"
+SERVICE_DUMP_EDID = "dump_edid"
+
 ATTR_PRESET = "preset"
 ATTR_DEVICE_ID = "device_id"
+ATTR_INPUT = "input"
+ATTR_OUTPUT = "output"
+ATTR_SOURCE = "source"
+ATTR_NUMBER = "number"
+
+DUMP_SOURCE_INPUT = "input"
+DUMP_SOURCE_OUTPUT = "output"
+DUMP_SOURCE_SLOT = "slot"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up AVGear Matrix integration."""
 
-    async def handle_save_preset(call: ServiceCall) -> None:
-        """Handle the save_preset service call."""
-        preset = call.data[ATTR_PRESET]
-        device_id = call.data.get(ATTR_DEVICE_ID)
+    def _resolve_entry(device_id: str | None) -> AVGearMatrixConfigEntry:
+        """Resolve which loaded matrix a service call targets.
 
+        If ``device_id`` is given, look it up. Otherwise fall back to the sole
+        loaded entry, raising if multiple entries are loaded and none was
+        specified.
+        """
         loaded_entries: list[AVGearMatrixConfigEntry] = cast(
             list[AVGearMatrixConfigEntry],
             [
@@ -61,11 +81,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 if entry.state is ConfigEntryState.LOADED
             ],
         )
-
         if not loaded_entries:
             raise ServiceValidationError("No AVGear Matrix devices are loaded")
-
-        target_entry: AVGearMatrixConfigEntry | None = None
 
         if device_id:
             device_registry = dr.async_get(hass)
@@ -73,18 +90,58 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             if device:
                 for entry in loaded_entries:
                     if entry.entry_id in device.config_entries:
-                        target_entry = entry
-                        break
-            if target_entry is None:
-                raise ServiceValidationError("Selected device is not an AVGear Matrix")
-        elif len(loaded_entries) == 1:
-            target_entry = loaded_entries[0]
-        else:
-            raise ServiceValidationError(
-                "Multiple AVGear Matrix devices loaded; specify a device_id"
-            )
+                        return entry
+            raise ServiceValidationError("Selected device is not an AVGear Matrix")
 
-        await target_entry.runtime_data.async_save_preset(preset)
+        if len(loaded_entries) == 1:
+            return loaded_entries[0]
+
+        raise ServiceValidationError(
+            "Multiple AVGear Matrix devices loaded; specify a device_id"
+        )
+
+    async def handle_save_preset(call: ServiceCall) -> None:
+        """Handle the save_preset service call."""
+        target_entry = _resolve_entry(call.data.get(ATTR_DEVICE_ID))
+        await target_entry.runtime_data.async_save_preset(call.data[ATTR_PRESET])
+
+    async def handle_copy_edid_from_output(call: ServiceCall) -> None:
+        """Copy a display's EDID onto an input."""
+        target_entry = _resolve_entry(call.data.get(ATTR_DEVICE_ID))
+        await target_entry.runtime_data.async_copy_edid_from_output(
+            int(call.data[ATTR_OUTPUT]), int(call.data[ATTR_INPUT])
+        )
+
+    async def handle_force_input_pcm(call: ServiceCall) -> None:
+        """Force an input's EDID audio section to PCM."""
+        target_entry = _resolve_entry(call.data.get(ATTR_DEVICE_ID))
+        await target_entry.runtime_data.async_force_input_pcm(
+            int(call.data[ATTR_INPUT])
+        )
+
+    async def handle_dump_edid(call: ServiceCall) -> dict[str, Any]:
+        """Return the raw EDID bytes from an input, output, or built-in slot."""
+        target_entry = _resolve_entry(call.data.get(ATTR_DEVICE_ID))
+        source = call.data[ATTR_SOURCE]
+        number = int(call.data[ATTR_NUMBER])
+        client = target_entry.runtime_data.client
+
+        dumpers = {
+            DUMP_SOURCE_INPUT: client.dump_input_edid,
+            DUMP_SOURCE_OUTPUT: client.dump_output_edid,
+            DUMP_SOURCE_SLOT: client.dump_builtin_edid,
+        }
+        try:
+            raw = await dumpers[source](number)
+        except (AVGearConnectionError, AVGearCommandError) as err:
+            raise ServiceValidationError(f"Failed to read EDID: {err}") from err
+
+        return {
+            "hex": raw.hex(),
+            "length": len(raw),
+            "source": source,
+            "number": number,
+        }
 
     if not hass.services.has_service(DOMAIN, SERVICE_SAVE_PRESET):
         hass.services.async_register(
@@ -98,6 +155,52 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 }
             ),
             supports_response=False,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_COPY_EDID_FROM_OUTPUT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_COPY_EDID_FROM_OUTPUT,
+            handle_copy_edid_from_output,
+            schema=vol.Schema(
+                {
+                    vol.Required(ATTR_INPUT): vol.All(int, vol.Range(min=1, max=32)),
+                    vol.Required(ATTR_OUTPUT): vol.All(int, vol.Range(min=1, max=32)),
+                    vol.Optional(ATTR_DEVICE_ID): str,
+                }
+            ),
+            supports_response=SupportsResponse.NONE,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_FORCE_INPUT_PCM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FORCE_INPUT_PCM,
+            handle_force_input_pcm,
+            schema=vol.Schema(
+                {
+                    vol.Required(ATTR_INPUT): vol.All(int, vol.Range(min=1, max=32)),
+                    vol.Optional(ATTR_DEVICE_ID): str,
+                }
+            ),
+            supports_response=SupportsResponse.NONE,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_DUMP_EDID):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DUMP_EDID,
+            handle_dump_edid,
+            schema=vol.Schema(
+                {
+                    vol.Required(ATTR_SOURCE): vol.In(
+                        [DUMP_SOURCE_INPUT, DUMP_SOURCE_OUTPUT, DUMP_SOURCE_SLOT]
+                    ),
+                    vol.Required(ATTR_NUMBER): vol.All(int, vol.Range(min=1, max=32)),
+                    vol.Optional(ATTR_DEVICE_ID): str,
+                }
+            ),
+            supports_response=SupportsResponse.ONLY,
         )
 
     return True

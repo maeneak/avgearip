@@ -31,6 +31,8 @@ async def async_setup_entry(
         AVGearSavePresetButton(coordinator),
         AVGearAllThroughButton(coordinator),
         AVGearAllOffButton(coordinator),
+        AVGearResetAllEDIDButton(coordinator),
+        AVGearAutoHDCPButton(coordinator),
     ]
 
     async_add_entities(entities)
@@ -91,3 +93,43 @@ class AVGearAllOffButton(AVGearBaseEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Handle the button press."""
         await self.coordinator.async_all_off()
+
+
+class AVGearResetAllEDIDButton(AVGearBaseEntity, ButtonEntity):
+    """Button to factory-reset every input's EDID (EDIDMInit.)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Reset All EDID"
+    _attr_icon = "mdi:restore"
+
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_reset_all_edid"
+
+    async def async_press(self) -> None:
+        """Reset all input EDIDs to factory defaults."""
+        try:
+            await self.coordinator.async_reset_all_edid()
+        except AVGearConnectionError as err:
+            _LOGGER.error("Failed to reset EDID: %s", err)
+
+
+class AVGearAutoHDCPButton(AVGearBaseEntity, ButtonEntity):
+    """Button to run the device's Auto HDCP management routine (%0801.)."""
+
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Auto HDCP Management"
+    _attr_icon = "mdi:shield-refresh"
+
+    def __init__(self, coordinator: AVGearMatrixCoordinator) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_auto_hdcp"
+
+    async def async_press(self) -> None:
+        """Trigger auto HDCP management."""
+        try:
+            await self.coordinator.async_auto_hdcp()
+        except AVGearConnectionError as err:
+            _LOGGER.error("Failed to run auto HDCP: %s", err)

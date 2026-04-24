@@ -27,3 +27,16 @@ ATTR_FIRMWARE = "firmware"
 NUM_INPUTS = 8
 NUM_OUTPUTS = 8
 NUM_PRESETS = 10  # 0-9
+
+# EDID built-in slot labels (for the EDID/x/y. command). The device's own
+# firmware-embedded profiles; returned dumps may not differentiate slots on
+# all firmware revisions, so the select entity treats these as write-only
+# labels the user can round-robin through.
+EDID_PROFILES: dict[int, str] = {
+    1: "1080p 2D 2CH",
+    2: "1080p 3D 2CH",
+    3: "1080p 2D Multichannel",
+    4: "1080p 3D Multichannel",
+    5: "4K 30Hz 2D",
+    6: "4K 60Hz 2D",
+}

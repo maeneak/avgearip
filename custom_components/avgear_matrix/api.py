@@ -16,6 +16,9 @@ COMMAND_DELAY = 0.1  # Delay between commands
 BUFFER_SIZE = 4096  # Socket read buffer size
 DRAIN_TIMEOUT = 0.1  # Timeout for draining additional response data
 
+# The matrix emits this banner on the first response of a new TCP session.
+_SESSION_BANNER = "Please Input Your Command :"
+
 
 class AVGearConnectionError(Exception):
     """Exception for connection errors."""
@@ -23,6 +26,22 @@ class AVGearConnectionError(Exception):
 
 class AVGearCommandError(Exception):
     """Exception for command errors."""
+
+
+def _clean_response(data: bytes) -> bytes:
+    """Strip embedded NUL bytes and the session banner prefix.
+
+    The matrix firmware occasionally emits spurious ``\\x00`` bytes inside
+    connection-status responses, and prefixes the first response of a new
+    TCP session with ``Please Input Your Command :\\r\\n``.
+    """
+    cleaned = data.replace(b"\x00", b"")
+    banner = _SESSION_BANNER.encode("ascii")
+    if cleaned.lstrip().startswith(banner):
+        cleaned = cleaned.lstrip()[len(banner):]
+        # Drop the line-terminator that follows the banner, if any.
+        cleaned = cleaned.lstrip(b"\r\n")
+    return cleaned
 
 
 @dataclass
@@ -34,6 +53,18 @@ class MatrixStatus:
     firmware: str = ""
     locked: bool = False
     power_state: str = "PWON"  # PWON, PWOFF, STANDBY
+
+    # HDCP — distinct meanings per row
+    input_hdcp: dict[int, bool | None] = field(default_factory=dict)         # %9978. (HDCPEN setting)
+    output_hdcp: dict[int, bool | None] = field(default_factory=dict)        # %9974. (display capability)
+    input_hdcp_active: dict[int, bool | None] = field(default_factory=dict)  # %9973. (live negotiation)
+
+    # Physical link state
+    input_connected: dict[int, bool | None] = field(default_factory=dict)    # %9971.
+    output_connected: dict[int, bool | None] = field(default_factory=dict)   # %9972.
+
+    # Per-output resolution string as reported by %9976.
+    output_resolution: dict[int, str | None] = field(default_factory=dict)
 
     def get_output_input(self, output: int) -> int | None:
         """Get the input routed to a specific output."""
@@ -109,8 +140,12 @@ class AVGearMatrixClient:
                 self._reader = None
             _LOGGER.debug("Disconnected from AVGear Matrix")
 
-    async def _send_command(self, command: str) -> str:
-        """Send a command and return the response."""
+    async def _send_command_raw(self, command: str) -> bytes:
+        """Send a command and return the raw response bytes.
+
+        Session banner prefix and embedded NUL bytes are stripped.
+        Used for binary payloads such as EDID dumps.
+        """
         async with self._lock:
             if not self.connected:
                 await self.connect()
@@ -141,9 +176,9 @@ class AVGearMatrixClient:
                         break
                     chunks.append(more)
 
-                response_text = b"".join(chunks).decode("ascii", errors="replace").strip()
-                _LOGGER.debug("Received response: %s", response_text)
-                return response_text
+                raw = _clean_response(b"".join(chunks))
+                _LOGGER.debug("Received response: %d raw bytes", len(raw))
+                return raw
 
             except asyncio.TimeoutError as err:
                 await self.disconnect()
@@ -151,6 +186,13 @@ class AVGearMatrixClient:
             except OSError as err:
                 await self.disconnect()
                 raise AVGearConnectionError(f"Communication error: {err}") from err
+
+    async def _send_command(self, command: str) -> str:
+        """Send a command and return the decoded ASCII response."""
+        raw = await self._send_command_raw(command)
+        response_text = raw.decode("ascii", errors="replace").strip()
+        _LOGGER.debug("Received response: %s", response_text)
+        return response_text
 
     # --- Query Commands ---
 
@@ -324,7 +366,143 @@ class AVGearMatrixClient:
         self._status.locked = False
         return True
 
+    # --- HDCP Commands ---
+
+    async def set_input_hdcp(self, input_num: int | str, compliant: bool) -> bool:
+        """Set HDCP compliance for an input (or "ALL")."""
+        self._validate_port_or_all(input_num, self._num_inputs, "Input")
+        target = "ALL" if isinstance(input_num, str) else f"{input_num:02d}"
+        flag = "1" if compliant else "0"
+        await self._send_command(f"/%I/{target}:{flag}.")
+        if isinstance(input_num, int):
+            self._status.input_hdcp[input_num] = compliant
+        else:
+            for i in range(1, self._num_inputs + 1):
+                self._status.input_hdcp[i] = compliant
+        return True
+
+    async def set_output_hdcp(self, output_num: int | str, compliant: bool) -> bool:
+        """Set HDCP compliance for an output (or "ALL")."""
+        self._validate_port_or_all(output_num, self._num_outputs, "Output")
+        target = "ALL" if isinstance(output_num, str) else f"{output_num:02d}"
+        flag = "1" if compliant else "0"
+        await self._send_command(f"/%O/{target}:{flag}.")
+        if isinstance(output_num, int):
+            self._status.output_hdcp[output_num] = compliant
+        else:
+            for i in range(1, self._num_outputs + 1):
+                self._status.output_hdcp[i] = compliant
+        return True
+
+    async def auto_hdcp(self) -> bool:
+        """Run Auto HDCP management (%0801.)."""
+        await self._send_command("%0801.")
+        return True
+
+    async def get_input_hdcp(self) -> dict[int, bool | None]:
+        """Query input HDCP compliance setting (%9978. / HDCPEN)."""
+        response = await self._send_command("%9978.")
+        parsed = self._parse_yn_table(response, "HDCPEN", self._num_inputs)
+        self._status.input_hdcp = parsed
+        return parsed
+
+    async def get_output_hdcp(self) -> dict[int, bool | None]:
+        """Query downstream display HDCP capability (%9974.)."""
+        response = await self._send_command("%9974.")
+        parsed = self._parse_yn_table(response, "HDCP", self._num_outputs)
+        self._status.output_hdcp = parsed
+        return parsed
+
+    async def get_input_hdcp_active(self) -> dict[int, bool | None]:
+        """Query live HDCP negotiation state per input (%9973.)."""
+        response = await self._send_command("%9973.")
+        parsed = self._parse_yn_table(response, "HDCP", self._num_inputs)
+        self._status.input_hdcp_active = parsed
+        return parsed
+
+    # --- Connection & Resolution Queries ---
+
+    async def get_input_connection(self) -> dict[int, bool | None]:
+        """Query input cable connection state (%9971.)."""
+        response = await self._send_command("%9971.")
+        parsed = self._parse_yn_table(response, "Connect", self._num_inputs)
+        self._status.input_connected = parsed
+        return parsed
+
+    async def get_output_connection(self) -> dict[int, bool | None]:
+        """Query output cable connection state (%9972.)."""
+        response = await self._send_command("%9972.")
+        parsed = self._parse_yn_table(response, "Connect", self._num_outputs)
+        self._status.output_connected = parsed
+        return parsed
+
+    async def get_output_resolution(self) -> dict[int, str | None]:
+        """Query per-output resolution (%9976.)."""
+        response = await self._send_command("%9976.")
+        parsed = self._parse_resolution_table(response, self._num_outputs)
+        self._status.output_resolution = parsed
+        return parsed
+
+    # --- EDID Commands ---
+
+    async def set_input_edid_profile(self, input_num: int, profile: int) -> bool:
+        """Set input EDID to a built-in slot (1-6) via EDID/x/y."""
+        if not (1 <= input_num <= self._num_inputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
+        if not (1 <= profile <= 6):
+            raise AVGearCommandError("EDID profile must be 1-6")
+        await self._send_command(f"EDID/{input_num:02d}/{profile}.")
+        return True
+
+    async def copy_output_edid_to_input(self, output_num: int, input_num: int) -> bool:
+        """Copy a display's EDID onto an input (EDIDHxBy.)."""
+        if not (1 <= input_num <= self._num_inputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
+        if not (1 <= output_num <= self._num_outputs):
+            raise AVGearCommandError(f"Output must be 1-{self._num_outputs}")
+        await self._send_command(f"EDIDH{output_num}B{input_num}.")
+        return True
+
+    async def force_input_edid_pcm(self, input_num: int) -> bool:
+        """Force the audio section of an input's EDID to PCM (EDIDPCMx.)."""
+        if not (1 <= input_num <= self._num_inputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
+        await self._send_command(f"EDIDPCM{input_num}.")
+        return True
+
+    async def reset_all_edid(self) -> bool:
+        """Restore factory-default EDID on every input (EDIDMInit.)."""
+        await self._send_command("EDIDMInit.")
+        return True
+
+    async def dump_input_edid(self, input_num: int) -> bytes:
+        """Return the raw EDID bytes currently loaded on an input."""
+        if not (1 <= input_num <= self._num_inputs):
+            raise AVGearCommandError(f"Input must be 1-{self._num_inputs}")
+        return await self._send_command_raw(f"GetInPortEDID{input_num}.")
+
+    async def dump_output_edid(self, output_num: int) -> bytes:
+        """Return the raw EDID bytes from the display on an output (EDIDGx.)."""
+        if not (1 <= output_num <= self._num_outputs):
+            raise AVGearCommandError(f"Output must be 1-{self._num_outputs}")
+        return await self._send_command_raw(f"EDIDG{output_num}.")
+
+    async def dump_builtin_edid(self, slot: int) -> bytes:
+        """Return the raw bytes of a built-in EDID slot (GetIntEDIDx.)."""
+        if not (1 <= slot <= 6):
+            raise AVGearCommandError("EDID slot must be 1-6")
+        return await self._send_command_raw(f"GetIntEDID{slot}.")
+
     # --- Parse Helpers ---
+
+    def _validate_port_or_all(self, port: int | str, maximum: int, label: str) -> None:
+        """Validate an int port in range, or the literal string 'ALL'."""
+        if isinstance(port, str):
+            if port.upper() != "ALL":
+                raise AVGearCommandError(f"{label} must be an integer or 'ALL'")
+            return
+        if not (1 <= port <= maximum):
+            raise AVGearCommandError(f"{label} must be 1-{maximum} or 'ALL'")
 
     def _parse_status_response(self, response: str) -> dict[int, int | None]:
         """Parse the Status. command response.
@@ -415,6 +593,55 @@ class AVGearMatrixClient:
             return None
 
         return self._status.outputs.get(output)
+
+    @staticmethod
+    def _parse_yn_table(response: str, data_row_label: str, num_ports: int) -> dict[int, bool | None]:
+        """Parse the ``In/Out  01 02 03 04\\n<LABEL>  Y N Y N`` table shape.
+
+        The matrix returns four-column tables in two banks (ports 1-4 then 5-8,
+        etc.). Header rows carry port numbers; data rows carry Y/N flags keyed
+        by ``data_row_label`` (e.g. ``HDCP``, ``HDCPEN``, ``Connect``).
+        """
+        result: dict[int, bool | None] = {n: None for n in range(1, num_ports + 1)}
+
+        header_pattern = re.compile(r"(?:In|Out)\s+((?:\d{1,2}\s*)+)", re.IGNORECASE)
+        # Some firmware pads labels with trailing spaces; tolerate variable spacing.
+        data_pattern = re.compile(
+            rf"{re.escape(data_row_label)}\s+((?:[YN]\s*)+)", re.IGNORECASE
+        )
+
+        headers = header_pattern.findall(response)
+        data_rows = data_pattern.findall(response)
+        if not headers or not data_rows or len(headers) != len(data_rows):
+            return result
+
+        for header_chunk, data_chunk in zip(headers, data_rows):
+            ports = [int(x) for x in header_chunk.split() if x.isdigit()]
+            flags = [c for c in data_chunk.upper() if c in ("Y", "N")]
+            for port, flag in zip(ports, flags):
+                if 1 <= port <= num_ports:
+                    result[port] = flag == "Y"
+
+        return result
+
+    @staticmethod
+    def _parse_resolution_table(response: str, num_outputs: int) -> dict[int, str | None]:
+        """Parse the ``Out N <resolution>`` rows from %9976. responses.
+
+        Anchored to line-start so a multi-column header row like
+        ``Out  01 02 03 04`` (returned by connection queries) can't be
+        mis-parsed as a resolution row if the regex is ever pointed at the
+        wrong response.
+        """
+        result: dict[int, str | None] = {n: None for n in range(1, num_outputs + 1)}
+        for match in re.finditer(
+            r"^\s*Out\s+(\d{1,2})\s+(\S+)\s*$", response, re.IGNORECASE | re.MULTILINE
+        ):
+            out_num = int(match.group(1))
+            value = match.group(2).strip()
+            if 1 <= out_num <= num_outputs and value:
+                result[out_num] = value
+        return result
 
     async def test_connection(self) -> dict[str, Any]:
         """Test connection and return device info."""

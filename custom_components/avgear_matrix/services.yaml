@@ -18,3 +18,98 @@ save_preset:
       selector:
         device:
           integration: avgear_matrix
+
+copy_edid_from_output:
+  name: Copy EDID from Output
+  description: >-
+    Copy the EDID of the display connected to an output onto an input, so
+    sources plugged into that input negotiate with the display's native modes.
+  fields:
+    input:
+      name: Input
+      description: Input that will learn the EDID.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 32
+          mode: box
+    output:
+      name: Output
+      description: Output whose connected display provides the EDID.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 32
+          mode: box
+    device_id:
+      name: Device
+      description: Target AVGear Matrix device. Required if multiple devices are loaded.
+      required: false
+      selector:
+        device:
+          integration: avgear_matrix
+
+force_input_pcm:
+  name: Force Input Audio to PCM
+  description: >-
+    Modify an input's EDID so sources only announce PCM audio formats. Useful
+    when a downstream device can't decode bitstream audio. One-way — to revert
+    either re-apply a built-in EDID profile or use Reset All EDID.
+  fields:
+    input:
+      name: Input
+      description: Input whose EDID audio section will be replaced with PCM only.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 32
+          mode: box
+    device_id:
+      name: Device
+      description: Target AVGear Matrix device. Required if multiple devices are loaded.
+      required: false
+      selector:
+        device:
+          integration: avgear_matrix
+
+dump_edid:
+  name: Dump EDID
+  description: >-
+    Read raw EDID bytes from an input, an output's connected display, or a
+    built-in slot, and return them as a hex string in the service response.
+    Diagnostic tool for troubleshooting HDMI handshake issues.
+  fields:
+    source:
+      name: Source
+      description: Where to read the EDID from.
+      required: true
+      selector:
+        select:
+          options:
+            - label: Input
+              value: input
+            - label: Output
+              value: output
+            - label: Built-in slot
+              value: slot
+    number:
+      name: Number
+      description: >-
+        Input number (1 - number of inputs), output number (1 - number of
+        outputs), or built-in slot (1-6), depending on source.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 32
+          mode: box
+    device_id:
+      name: Device
+      description: Target AVGear Matrix device. Required if multiple devices are loaded.
+      required: false
+      selector:
+        device:
+          integration: avgear_matrix

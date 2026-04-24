@@ -71,3 +71,82 @@ async def test_update_data_tolerates_power_lock_query_failures(hass) -> None:
     result = await coordinator._async_update_data()
 
     assert result is status
+
+
+@pytest.mark.asyncio
+async def test_update_data_tolerates_diagnostic_query_failures(hass) -> None:
+    """HDCP/connection/resolution failures must not break the refresh."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+
+    status = MatrixStatus(outputs={out: out for out in range(1, 9)})
+    client = AsyncMock(spec=AVGearMatrixClient)
+    client.get_status.return_value = status
+    for attr in (
+        "get_input_hdcp",
+        "get_output_hdcp",
+        "get_input_hdcp_active",
+        "get_input_connection",
+        "get_output_connection",
+        "get_output_resolution",
+    ):
+        getattr(client, attr).side_effect = AVGearConnectionError(f"{attr} failed")
+
+    coordinator = AVGearMatrixCoordinator(hass, client, entry)
+    result = await coordinator._async_update_data()
+
+    assert result is status
+
+
+def _coordinator_with_stubbed_refresh(hass) -> tuple[AVGearMatrixCoordinator, AsyncMock]:
+    """Build a coordinator whose async_request_refresh is a no-op.
+
+    The EDID wrappers trigger a refresh after mutating state; in unit tests we
+    don't want that cascade into the debouncer/update cycle.
+    """
+    entry = _entry()
+    entry.add_to_hass(hass)
+    client = AsyncMock(spec=AVGearMatrixClient)
+    coordinator = AVGearMatrixCoordinator(hass, client, entry)
+    coordinator.async_request_refresh = AsyncMock()
+    return coordinator, client
+
+
+@pytest.mark.asyncio
+async def test_set_input_edid_tracks_current_profile(hass) -> None:
+    """async_set_input_edid should record what was last applied."""
+    coordinator, client = _coordinator_with_stubbed_refresh(hass)
+
+    await coordinator.async_set_input_edid(3, 6)
+
+    client.set_input_edid_profile.assert_awaited_once_with(3, 6)
+    coordinator.async_request_refresh.assert_awaited_once()
+    assert coordinator.get_current_edid_profile(3) == 6
+    assert coordinator.get_current_edid_profile(4) is None
+
+
+@pytest.mark.asyncio
+async def test_reset_all_edid_clears_tracked_profiles(hass) -> None:
+    """Factory reset should forget optimistic per-input state."""
+    coordinator, client = _coordinator_with_stubbed_refresh(hass)
+    coordinator._current_edid_profile = {1: 3, 2: 6}
+
+    await coordinator.async_reset_all_edid()
+
+    client.reset_all_edid.assert_awaited_once()
+    coordinator.async_request_refresh.assert_awaited_once()
+    assert coordinator.get_current_edid_profile(1) is None
+    assert coordinator.get_current_edid_profile(2) is None
+
+
+@pytest.mark.asyncio
+async def test_copy_edid_forgets_tracked_profile(hass) -> None:
+    """Copying a display EDID invalidates the cached profile number."""
+    coordinator, client = _coordinator_with_stubbed_refresh(hass)
+    coordinator._current_edid_profile = {5: 2}
+
+    await coordinator.async_copy_edid_from_output(3, 5)
+
+    client.copy_output_edid_to_input.assert_awaited_once_with(3, 5)
+    coordinator.async_request_refresh.assert_awaited_once()
+    assert coordinator.get_current_edid_profile(5) is None
